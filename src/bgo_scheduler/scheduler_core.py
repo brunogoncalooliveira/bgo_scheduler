@@ -24,6 +24,7 @@ Cada sub-pasta das raízes de apps com um main.py (ou, em alternativa, main.bat)
 
 import configparser
 import copy
+import ctypes
 import json
 import os
 import re
@@ -44,24 +45,50 @@ from .loki_logger import get_app_logger, get_scheduler_logger
 # evita que cada execução abra uma janela de consola quando o scheduler
 # corre sem consola (bgo-scheduler-tray / pythonw)
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+SW_HIDE = 0
 
 
-def _hidden_console():
-    """(creationflags, startupinfo) para lançar uma app sem janelas visíveis.
+def _has_console() -> bool:
+    """O processo tem uma consola associada? (mesmo sem janela visível)"""
+    if os.name != "nt":
+        return False
+    return bool(ctypes.windll.kernel32.GetConsoleCP())
 
-    `CREATE_NO_WINDOW` só esconde a consola do processo lançado diretamente.
-    Se a app chamar OUTROS programas de consola (netos), como não tem consola
-    para herdarem, cada um aloca uma consola nova e VISÍVEL — as janelas de DOS
-    que piscam. A solução é dar à app uma consola PRÓPRIA mas OCULTA
-    (`CREATE_NEW_CONSOLE` + `SW_HIDE`): os netos herdam-na e não abrem janela.
-    O stdout/stderr da app continua a ir para os pipes (é capturado à mesma).
+
+def _ensure_hidden_console() -> None:
+    """Garante que o scheduler tem UMA consola (oculta) para os filhos herdarem.
+
+    Processos de consola (git, cmd, python…) lançados por uma app criam uma
+    sessão de consola nova quando não há nenhuma para herdar — e é a criação
+    dessas sessões que faz piscar janelas (nalgumas máquinas até com
+    CREATE_NO_WINDOW/SW_HIDE, p. ex. com o Windows Terminal como terminal por
+    omissão). Alocar uma única consola oculta no arranque do tray/pythonw faz
+    com que apps E netos herdem sempre a mesma: zero sessões novas por
+    execução, zero janelas.
+    """
+    if os.name != "nt" or _has_console():
+        return
+    k32 = ctypes.windll.kernel32
+    if k32.AllocConsole():
+        hwnd = k32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, SW_HIDE)
+
+
+def _child_creationflags() -> int:
+    """creationflags para lançar uma app sem janelas (e sem herdar Ctrl+C).
+
+    Com consola presente (a oculta do tray, ou a do bgo-scheduler em modo
+    consola), o filho herda-a — nenhuma janela nova; o grupo de processos
+    próprio evita que um Ctrl+C no scheduler mate as apps. Sem consola
+    (AllocConsole falhou), recua para CREATE_NO_WINDOW.
     """
     if os.name != "nt":
-        return 0, None
-    si = subprocess.STARTUPINFO()
-    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    si.wShowWindow = subprocess.SW_HIDE
-    return getattr(subprocess, "CREATE_NEW_CONSOLE", 0), si
+        return 0
+    if _has_console():
+        return CREATE_NEW_PROCESS_GROUP
+    return CREATE_NO_WINDOW
 
 TAIL_CHARS = 4000       # máximo de output guardado por execução no histórico
 STREAM_LINES = 2000     # linhas de stdout/stderr retidas em memória por execução
@@ -803,7 +830,7 @@ class AppRuntime:
             try:
                 subprocess.run(
                     ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                    capture_output=True, creationflags=CREATE_NO_WINDOW,
+                    capture_output=True, creationflags=_child_creationflags(),
                 )
                 return
             except Exception:
@@ -857,13 +884,12 @@ class AppRuntime:
             # Popen + threads: as linhas são escritas no log à medida que saem
             # (logs "live" no Grafana Loki), em vez de só no fim da execução.
             out_lines, err_lines = deque(maxlen=STREAM_LINES), deque(maxlen=STREAM_LINES)
-            creationflags, startupinfo = _hidden_console()
             try:
                 proc = subprocess.Popen(
                     cmd, cwd=str(app.dir),
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, encoding=enc, errors="replace", bufsize=1,
-                    env=env, creationflags=creationflags, startupinfo=startupinfo,
+                    env=env, creationflags=_child_creationflags(),
                 )
             except Exception as e:
                 status = "exceção"
@@ -962,6 +988,7 @@ class Registry:
     """Conjunto das apps geridas + callbacks para o tray."""
 
     def __init__(self, config, rules: RulesStore):
+        _ensure_hidden_console()   # tray/pythonw: consola oculta única p/ filhos herdarem
         self.config = config
         self.rules = rules
         self.stop_event = threading.Event()

@@ -7,6 +7,19 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.7] - 2026-07-11
+
+### Corrigido
+- Janelas de consola a piscar quando uma app lança programas de consola
+  (git, cmd, python…), **mesmo em máquinas onde a 1.9.6 não chegava** (ex.:
+  Windows Terminal como terminal por omissão, que pode mostrar a janela na
+  criação de cada sessão de consola). O scheduler passa a alocar **uma única
+  consola oculta no arranque** (tray/pythonw) que as apps e os netos herdam —
+  nenhuma sessão de consola nova é criada por execução, logo não há nada para
+  piscar. Em modo consola (`bgo-scheduler`), os filhos herdam a consola do
+  scheduler e ganham grupo de processos próprio (um Ctrl+C no scheduler já não
+  mata as apps).
+
 ## [1.9.6] - 2026-07-11
 
 ### Corrigido
@@ -46,7 +59,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.6...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.7...HEAD
+[1.9.7]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.6...v1.9.7
 [1.9.6]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.5...v1.9.6
 [1.9.5]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.4...v1.9.5
 [1.9.4]: https://github.com/brunogoncalooliveira/bgo_scheduler/releases/tag/v1.9.4
