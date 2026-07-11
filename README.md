@@ -1,5 +1,11 @@
 # bgo_scheduler
 
+[![CI](https://img.shields.io/github/actions/workflow/status/brunogoncalooliveira/bgo_scheduler/ci.yml?branch=main&label=CI)](https://github.com/brunogoncalooliveira/bgo_scheduler/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/bgo-scheduler)](https://pypi.org/project/bgo-scheduler/)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/bgo-scheduler/)
+[![License: MIT](https://img.shields.io/github/license/brunogoncalooliveira/bgo_scheduler)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 Scheduler de apps para Windows com ícone de system tray, dashboard web live e
 logs em formato Grafana Loki. Distribuído como wheel Python.
 
