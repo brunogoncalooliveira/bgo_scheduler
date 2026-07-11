@@ -45,6 +45,24 @@ from .loki_logger import get_app_logger, get_scheduler_logger
 # corre sem consola (bgo-scheduler-tray / pythonw)
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+
+def _hidden_console():
+    """(creationflags, startupinfo) para lançar uma app sem janelas visíveis.
+
+    `CREATE_NO_WINDOW` só esconde a consola do processo lançado diretamente.
+    Se a app chamar OUTROS programas de consola (netos), como não tem consola
+    para herdarem, cada um aloca uma consola nova e VISÍVEL — as janelas de DOS
+    que piscam. A solução é dar à app uma consola PRÓPRIA mas OCULTA
+    (`CREATE_NEW_CONSOLE` + `SW_HIDE`): os netos herdam-na e não abrem janela.
+    O stdout/stderr da app continua a ir para os pipes (é capturado à mesma).
+    """
+    if os.name != "nt":
+        return 0, None
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = subprocess.SW_HIDE
+    return getattr(subprocess, "CREATE_NEW_CONSOLE", 0), si
+
 TAIL_CHARS = 4000       # máximo de output guardado por execução no histórico
 STREAM_LINES = 2000     # linhas de stdout/stderr retidas em memória por execução
 HISTORY_SIZE = 100
@@ -839,12 +857,13 @@ class AppRuntime:
             # Popen + threads: as linhas são escritas no log à medida que saem
             # (logs "live" no Grafana Loki), em vez de só no fim da execução.
             out_lines, err_lines = deque(maxlen=STREAM_LINES), deque(maxlen=STREAM_LINES)
+            creationflags, startupinfo = _hidden_console()
             try:
                 proc = subprocess.Popen(
                     cmd, cwd=str(app.dir),
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, encoding=enc, errors="replace", bufsize=1,
-                    env=env, creationflags=CREATE_NO_WINDOW,
+                    env=env, creationflags=creationflags, startupinfo=startupinfo,
                 )
             except Exception as e:
                 status = "exceção"
