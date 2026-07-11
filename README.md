@@ -9,6 +9,8 @@
 Scheduler de apps para Windows com ícone de system tray, dashboard web live e
 logs em formato Grafana Loki. Distribuído como wheel Python.
 
+📋 Histórico de alterações em [CHANGELOG.md](CHANGELOG.md).
+
 ## Objetivos
 
 - **Scheduler Python de zero dependências** — o runtime não instala nada além
