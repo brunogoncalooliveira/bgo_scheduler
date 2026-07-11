@@ -1,7 +1,39 @@
 # bgo_scheduler
 
-Scheduler de apps com ícone de system tray, dashboard web live e logs em
-formato Grafana Loki. Distribuído como wheel Python.
+Scheduler de apps para Windows com ícone de system tray, dashboard web live e
+logs em formato Grafana Loki. Distribuído como wheel Python.
+
+## Objetivos
+
+- **Scheduler Python de zero dependências** — o runtime não instala nada além
+  da biblioteca padrão.
+- **Avisos que tiram partido do Windows** — ícone de system tray (Win32 nativo)
+  e notificações (toasts) para o estado das execuções.
+- **Sleep hours transversais e específicas por app** — períodos em que o
+  agendamento fica em pausa, definidos globalmente e/ou por aplicação.
+- **Encadeamento de execuções** — uma app corre depois de outra terminar com
+  sucesso (ex.: `app02` corre após `app01`).
+- **Visão agregada e por app** — uma vista geral de todas as execuções e o
+  detalhe/histórico de cada aplicação.
+
+## Screenshots
+
+**Visão geral de todas as apps** — indicadores no topo, lista de apps e o
+histórico agregado com estado, RC, notificações e mensagens.
+
+![Dashboard — visão geral das execuções de todas as apps](docs/images/dashboard-visao-geral.png)
+
+**Detalhe de uma app** — abas Monitorização / Configuração, histórico com
+duração e origem, e "Executar agora".
+
+![Dashboard — detalhe e histórico de uma app](docs/images/dashboard-app.png)
+
+**Definições globais** e **sleep hours transversais**, editáveis no dashboard:
+
+<p>
+  <img src="docs/images/definicoes-globais.png" alt="Modal de definições globais (host, port, raízes de apps, links)" width="440">
+  <img src="docs/images/sleep-hours.png" alt="Modal de sleep hours transversais" width="360">
+</p>
 
 ## Instalação
 
@@ -349,6 +381,12 @@ execução, streaming de logs, timeout, concorrência, histórico persistente,
 rescan, toggle e a API HTTP do dashboard. O CI (GitHub Actions,
 `.github\workflows\ci.yml`) corre ruff + pytest em Windows (Python 3.9 e 3.12)
 a cada push/PR.
+
+## To Do
+
+- [ ] Tornar a aplicação multi-língua (i18n do dashboard e das mensagens).
+- [ ] Tornar a aplicação cross-platform (Linux/macOS): abstrair o tray e as
+  notificações, hoje específicos do Windows.
 
 ## Licença
 
