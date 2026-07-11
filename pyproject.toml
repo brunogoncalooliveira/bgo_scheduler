@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bgo-scheduler"
-version = "1.9.4"
+version = "1.9.5"
 description = "Scheduler de apps com system tray, dashboard live e logs Grafana Loki"
 readme = "README.md"
 requires-python = ">=3.9"

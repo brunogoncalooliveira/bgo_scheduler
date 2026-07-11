@@ -38,7 +38,7 @@ duração e origem, e "Executar agora".
 ## Instalação
 
 ```bat
-pip install dist\bgo_scheduler-1.9.4-py3-none-any.whl
+pip install dist\bgo_scheduler-1.9.5-py3-none-any.whl
 ```
 
 **Sem dependências de runtime**: o ícone de tray é nativo do Windows (Win32
