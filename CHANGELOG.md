@@ -7,6 +7,19 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.9] - 2026-07-11
+
+### Corrigido
+- **Causa raiz das janelas de consola a piscar** (finalmente identificada e
+  reproduzida): o tray corre em `pythonw.exe` e as apps herdavam esse
+  interpretador. O `pythonw` é do subsistema GUI — nunca se liga a nenhuma
+  consola, nem à oculta do scheduler — pelo que os programas de consola
+  chamados pela app (git, cmd, outro python…) ficavam sem consola para herdar
+  e o Windows abria uma janela nova e visível por cada um. As apps passam a
+  correr no `python.exe` ao lado do interpretador resolvido (também quando
+  `python_exe` aponta para um `pythonw`), herdando a consola oculta — e os
+  netos idem, sem janelas. O output continua capturado por pipes, como antes.
+
 ## [1.9.8] - 2026-07-11
 
 ### Adicionado
@@ -67,7 +80,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.8...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.9...HEAD
+[1.9.9]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.8...v1.9.9
 [1.9.8]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.7...v1.9.8
 [1.9.7]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.6...v1.9.7
 [1.9.6]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.5...v1.9.6

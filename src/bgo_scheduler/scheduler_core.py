@@ -77,6 +77,25 @@ def _ensure_hidden_console() -> None:
             ctypes.windll.user32.ShowWindow(hwnd, SW_HIDE)
 
 
+def _console_python(exe: Path) -> Path:
+    """Troca pythonw.exe pelo python.exe ao lado (se existir).
+
+    O tray corre em pythonw e as apps herdavam esse interpretador. Mas o
+    pythonw é do subsistema GUI: NUNCA se liga a uma consola — nem à oculta
+    que o scheduler aloca. Uma app em pythonw que chame programas de consola
+    (git, cmd, outro python…) deixa-os sem consola do pai para herdar e o
+    Windows cria uma consola nova e VISÍVEL por cada um — as janelas a piscar.
+    Com python.exe, a app liga-se à consola oculta e os netos herdam-na.
+    O output da app não muda (vai por pipes em ambos os casos), e a janela
+    da própria app também não aparece (a consola herdada está oculta).
+    """
+    if exe.name.lower() == "pythonw.exe":
+        console = exe.with_name("python.exe")
+        if console.exists():
+            return console
+    return exe
+
+
 def _child_creationflags() -> int:
     """creationflags para lançar uma app sem janelas (e sem herdar Ctrl+C).
 
@@ -844,13 +863,13 @@ class AppRuntime:
     def _resolve_python(self):
         """Interpretador para apps py: python_exe do schedule.ini ou o do scheduler."""
         if not self.python_exe:
-            return Path(sys.executable), None
+            return _console_python(Path(sys.executable)), None
         exe = Path(self.python_exe).expanduser()
         if not exe.is_absolute():
             exe = self.appdef.dir / exe
         if not exe.exists():
             return None, f"python_exe não encontrado: {exe}"
-        return exe, None
+        return _console_python(exe), None
 
     def _execute(self, origem: str):
         app = self.appdef

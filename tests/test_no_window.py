@@ -18,6 +18,7 @@ from bgo_scheduler.scheduler_core import (
     CREATE_NEW_PROCESS_GROUP,
     CREATE_NO_WINDOW,
     _child_creationflags,
+    _console_python,
     _ensure_hidden_console,
     _has_console,
 )
@@ -99,6 +100,54 @@ def test_grandchild_console_hidden_without_scheduler_console(tmp_path):
     hwnd, visible = r.stdout.split()
     assert int(hwnd) != 0, "o neto devia ter herdado a consola oculta do scheduler"
     assert int(visible) == 0, "a consola herdada pelo neto não pode ser visível"
+
+
+def _fake_interp(tmp_path, *names):
+    d = tmp_path / "interp"
+    d.mkdir(exist_ok=True)
+    for n in names:
+        (d / n).write_text("", encoding="utf-8")
+    return d
+
+
+def test_pythonw_mapped_to_console_python(tmp_path):
+    """O bug real da máquina afetada: o tray (pythonw) passava pythonw às apps;
+    em pythonw (GUI) os netos de consola (git, cmd…) abrem janelas VISÍVEIS.
+    pythonw.exe tem de ser trocado pelo python.exe ao lado."""
+    d = _fake_interp(tmp_path, "pythonw.exe", "python.exe")
+    assert _console_python(d / "pythonw.exe") == d / "python.exe"
+
+
+def test_pythonw_kept_when_no_console_python(tmp_path):
+    d = _fake_interp(tmp_path, "pythonw.exe")   # sem python.exe ao lado
+    assert _console_python(d / "pythonw.exe") == d / "pythonw.exe"
+
+
+def test_console_python_untouched(tmp_path):
+    d = _fake_interp(tmp_path, "python.exe")
+    assert _console_python(d / "python.exe") == d / "python.exe"
+
+
+def test_resolve_python_maps_scheduler_pythonw(make_app, make_runtime, monkeypatch, tmp_path):
+    """Sem python_exe configurado, o interpretador do scheduler (pythonw no
+    tray) tem de chegar à app já mapeado para python.exe."""
+    d = _fake_interp(tmp_path, "pythonw.exe", "python.exe")
+    monkeypatch.setattr(sys, "executable", str(d / "pythonw.exe"))
+    rt = make_runtime(make_app("mapeada"))
+    exe, err = rt._resolve_python()
+    assert err is None
+    assert exe == d / "python.exe"
+
+
+def test_resolve_python_maps_configured_pythonw(make_app, make_runtime, tmp_path):
+    """python_exe explícito a apontar para um pythonw (ex.: venv) também é
+    mapeado — debaixo do scheduler o pythonw só traz o bug das janelas."""
+    d = _fake_interp(tmp_path, "pythonw.exe", "python.exe")
+    rt = make_runtime(make_app("cfgw"))
+    rt.python_exe = str(d / "pythonw.exe")
+    exe, err = rt._resolve_python()
+    assert err is None
+    assert exe == d / "python.exe"
 
 
 def test_app_that_spawns_children_still_runs(make_app, make_runtime):
