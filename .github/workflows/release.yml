@@ -1,0 +1,73 @@
+name: Release
+
+# Dispara quando e feito push de uma tag tipo v1.9.4
+on:
+  push:
+    tags:
+      - "v*"
+
+# Por omissao os jobs nao tem permissoes; cada job pede so o que precisa.
+permissions: {}
+
+jobs:
+  build:
+    name: Build (wheel + sdist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Guardar distribuicoes
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  github-release:
+    name: Publicar Release no GitHub
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # necessario para criar a release
+    steps:
+      - name: Obter distribuicoes
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Criar Release e anexar os ficheiros
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}"
+          dist/*
+          --repo "${{ github.repository }}"
+          --title "${{ github.ref_name }}"
+          --generate-notes
+
+  pypi:
+    name: Publicar no PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi          # protecao extra; regista o mesmo nome no PyPI
+    permissions:
+      id-token: write          # necessario para o Trusted Publishing (OIDC)
+    steps:
+      - name: Obter distribuicoes
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Publicar no PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
