@@ -56,6 +56,14 @@ def test_state_endpoint(server):
     assert "sleep_hours" in body and "max_parallel" in body and "warnings" in body
 
 
+def test_state_reports_running_version(server):
+    import bgo_scheduler
+
+    base, _, _ = server
+    _, body = call(base, "/api/state")
+    assert body["version"] == bgo_scheduler.__version__
+
+
 def test_logs_endpoint(server):
     base, _, _ = server
     status, body = call(base, "/api/logs?app=demo&lines=50")

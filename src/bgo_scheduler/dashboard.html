@@ -48,6 +48,7 @@
   header h1 { font-size: 16px; margin: 0; font-weight: 650; cursor: pointer; }
   header .links { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; }
   #conn { font-size: 12px; color: var(--muted); }
+  #ver { font-size: 12px; color: var(--muted); font-weight: 600; }
   #conn.err { color: var(--critical); font-weight: 600; }
   #sleep {
     font-size: 12px; color: var(--ink-2); border: 1px solid var(--hairline);
@@ -205,6 +206,7 @@
 <body>
 <header>
   <h1 id="home" title="Visão geral">bgo scheduler</h1>
+  <span id="ver" title="Versão do scheduler em execução"></span>
   <span id="conn">a ligar…</span>
   <span id="sleep"></span>
   <button id="settingsbtn" title="Definições globais">⚙ Definições</button>
@@ -337,6 +339,7 @@ async function api(path, opts) {
 async function refreshState() {
   try {
     STATE = await api("/api/state");
+    $("#ver").textContent = STATE.version ? "v" + STATE.version : "";
     $("#conn").textContent = "atualizado " + new Date().toLocaleTimeString("pt-PT");
     $("#conn").classList.remove("err");
   } catch (e) {

@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+from . import __version__
 from .config import SleepHours, _parse_hhmm, _parse_roots, parse_sleep_window
 from .cron import CronError, CronSpec
 from .loki_logger import get_app_logger, get_scheduler_logger
@@ -1388,6 +1389,9 @@ class Registry:
             runtimes = list(self.apps.values())
         return {
             "generated_at": _now_iso(),
+            # versão do PROCESSO em execução (não a do pip): permite confirmar
+            # no dashboard que uma atualização está mesmo a correr
+            "version": __version__,
             "apps_roots": [str(r) for r in self.config.apps_roots],
             "config_path": str(self.config.ini_path),
             "links": dict(self.config.links),

@@ -7,6 +7,14 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.8] - 2026-07-11
+
+### Adicionado
+- O dashboard mostra a **versão do scheduler em execução** no cabeçalho (e o
+  `/api/state` devolve `version`). Permite confirmar num relance que uma
+  atualização está mesmo a correr — a versão do `pip show` é a instalada em
+  disco, não necessariamente a do processo ativo.
+
 ## [1.9.7] - 2026-07-11
 
 ### Corrigido
@@ -59,7 +67,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.7...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.8...HEAD
+[1.9.8]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.7...v1.9.8
 [1.9.7]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.6...v1.9.7
 [1.9.6]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.5...v1.9.6
 [1.9.5]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.4...v1.9.5
