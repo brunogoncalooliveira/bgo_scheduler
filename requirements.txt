@@ -1,0 +1,8 @@
+# O bgo_scheduler não tem dependências de runtime: o tray é nativo Win32
+# (ctypes) e o dashboard usa só a stdlib. Instala o package com:
+#   pip install .
+#
+# Para desenvolvimento (testes + lint): pip install -e ".[dev]"
+#
+# As dependências de cada app (pandas, openpyxl, etc.) vivem junto da
+# própria app, não aqui.

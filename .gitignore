@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Build / distribuição
+build/
+dist/
+*.whl
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Testes / ferramentas
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Dados de runtime do scheduler (quando a config vive no repo)
+logs/
+history/
+notification_rules.json
+
+# IDE / SO / ferramentas
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db

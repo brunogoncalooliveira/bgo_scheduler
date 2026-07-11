@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bgo scheduler</title>
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --hairline: #e1e0d9;
+    --border: rgba(11,11,11,0.10);
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --accent: #2a78d6;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --hairline: #2c2c2a;
+      --border: rgba(255,255,255,0.10);
+      --accent: #3987e5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px; border-bottom: 1px solid var(--hairline);
+    background: var(--surface); position: sticky; top: 0; z-index: 5;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; cursor: pointer; }
+  header .links { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; }
+  #conn { font-size: 12px; color: var(--muted); }
+  #conn.err { color: var(--critical); font-weight: 600; }
+  #sleep {
+    font-size: 12px; color: var(--ink-2); border: 1px solid var(--hairline);
+    border-radius: 6px; padding: 2px 8px; display: none;
+  }
+  #sleep { cursor: pointer; }
+  #sleep.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  #sleep:hover { border-color: var(--accent); }
+  .sleep-note { color: var(--accent); }
+
+  /* modal */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 40;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; width: min(420px, 92vw); box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+  }
+  .modal h3 { margin: 0 0 12px; font-size: 15px; text-transform: none; letter-spacing: 0; color: var(--ink); }
+  .field { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+  .field label { min-width: 90px; color: var(--ink-2); font-size: 13px; }
+  .field input[type=time], .field select {
+    font: inherit; background: var(--page); color: var(--ink);
+    border: 1px solid var(--hairline); border-radius: 6px; padding: 5px 8px;
+  }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  /* editor de sleep hours por app */
+  .sleepbox { border: 1px solid var(--hairline); border-radius: 8px; padding: 10px 12px; margin-top: 4px; }
+  .sleepbox .field { margin: 6px 0; }
+
+  main { max-width: 1440px; margin: 0 auto; padding: 16px 20px 48px; }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .tile .label { font-size: 12px; color: var(--ink-2); }
+  .tile .value { font-size: 26px; font-weight: 650; margin-top: 2px; }
+  .tile .value small { font-size: 13px; font-weight: 400; color: var(--muted); }
+
+  .cols { display: grid; grid-template-columns: 380px 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+  /* app cards */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 10px; cursor: pointer;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .card .row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card .name { font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
+  .kind {
+    font: 11px var(--mono); color: var(--ink-2); border: 1px solid var(--hairline);
+    border-radius: 4px; padding: 0 5px; flex: none;
+  }
+  .card .meta { color: var(--ink-2); font-size: 12px; margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; margin-left: auto; white-space: nowrap; flex: none; }
+  .status .dot { font-size: 13px; line-height: 1; }
+  .st-ok .dot { color: var(--good); }
+  .st-run .dot { color: var(--warning); }
+  .st-err .dot { color: var(--critical); }
+  .st-timeout .dot { color: var(--serious); }
+  .st-off .dot, .st-none .dot { color: var(--muted); }
+
+  /* detail / overview panel */
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .panel h2 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .panel h3 { font-size: 13px; margin: 22px 0 8px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
+  .panel .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  button {
+    font: inherit; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface); color: var(--ink); padding: 5px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { opacity: .9; color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.back { font-size: 12px; padding: 3px 9px; }
+  label.sw { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+  input[type=text] {
+    font: inherit; background: var(--page); color: var(--ink);
+    border: 1px solid var(--hairline); border-radius: 6px; padding: 5px 8px;
+  }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--hairline); }
+  td { padding: 5px 10px 5px 0; border-bottom: 1px solid var(--hairline); font-variant-numeric: tabular-nums; vertical-align: top; }
+  tr.hist:hover td, tr.ov:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); cursor: pointer; }
+
+  /* notificações e mensagens nas tabelas */
+  .msgline { display: flex; gap: 5px; align-items: baseline; }
+  .msgline .ic { flex: none; font-weight: 700; }
+  .msgline .ic.err { color: var(--critical); }
+  .msgline .ic.info { color: var(--accent); }
+  .msgline .ic.ok { color: var(--good); }
+
+  .out {
+    font: 12px/1.5 var(--mono); background: var(--page); border: 1px solid var(--hairline);
+    border-radius: 8px; padding: 10px; white-space: pre-wrap; word-break: break-word;
+    max-height: 260px; overflow: auto; margin-top: 8px;
+  }
+  .out .err { color: var(--critical); }
+
+  /* log viewer */
+  #logbox {
+    font: 12px/1.55 var(--mono); background: var(--page); border: 1px solid var(--hairline);
+    border-radius: 8px; padding: 10px; max-height: 380px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  #logbox .t { color: var(--muted); }
+  #logbox .lv { font-weight: 700; }
+  #logbox .lv.error, #logbox .lv.critical { color: var(--critical); }
+  #logbox .lv.warning { color: var(--serious); }
+  #logbox .lv.info { color: var(--good); }
+  #logbox .ev { color: var(--ink-2); }
+
+  .hint { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--ink-2); padding: 24px; text-align: center; }
+  .warnbanner {
+    background: color-mix(in srgb, var(--serious) 14%, var(--surface));
+    border: 1px solid var(--serious); border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 16px; font-size: 13px;
+  }
+  .warnbanner b { color: var(--serious); }
+  .warnbanner ul { margin: 6px 0 0; padding-left: 20px; }
+  .warnbanner li { margin: 2px 0; }
+  .warn-tag { color: var(--serious); font-weight: 700; margin-left: 4px; cursor: help; }
+  .warnlist { color: var(--serious); font-size: 12px; margin-top: 8px; }
+  .warnlist ul { margin: 4px 0 0; padding-left: 18px; }
+  #toast {
+    position: fixed; bottom: 18px; right: 18px; background: var(--ink); color: var(--page);
+    border-radius: 8px; padding: 9px 14px; font-size: 13px; opacity: 0; transition: opacity .25s;
+    pointer-events: none; max-width: 380px; z-index: 20;
+  }
+  #toast.show { opacity: .95; }
+  .rule-row td { border-bottom: none; padding: 3px 8px 3px 0; }
+  .dirty-flag { color: var(--serious); font-size: 12px; font-weight: 600; }
+
+  /* abas do detalhe (Monitorização / Configuração) */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--hairline); margin: 14px 0 12px; }
+  .tab {
+    background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+    padding: 7px 14px; color: var(--ink-2); cursor: pointer; font: inherit;
+  }
+  .tab.active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+  .cfg-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .cfg-section-title { font-size: 13px; margin: 18px 0 8px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="home" title="Visão geral">bgo scheduler</h1>
+  <span id="conn">a ligar…</span>
+  <span id="sleep"></span>
+  <button id="settingsbtn" title="Definições globais">⚙ Definições</button>
+  <nav class="links" id="links"></nav>
+</header>
+
+<main>
+  <div id="warnbanner"></div>
+  <div class="tiles" id="tiles"></div>
+  <div class="cols">
+    <div>
+      <div style="margin-bottom:10px">
+        <button id="rescanbtn" title="Voltar a percorrer as raízes de apps">↻ Redetetar apps</button>
+      </div>
+      <div id="applist"></div>
+    </div>
+    <div class="panel" id="detail"><div class="empty">a carregar…</div></div>
+  </div>
+</main>
+<div id="toast"></div>
+<div id="modal-root"></div>
+
+<script>
+"use strict";
+
+const $ = (sel, root) => (root || document).querySelector(sel);
+let STATE = null;          // último /api/state
+let RULES = null;          // último /api/rules
+let selected = new URLSearchParams(location.search).get("app") || null;
+let histOpen = null;       // "start" do item de histórico expandido
+let detailTab = "monitor"; // aba ativa do detalhe: "monitor" | "config"
+let cfgDirty = { sched: false, sleep: false, rules: false };  // secções por gravar
+let cfgInputs = {};        // refs dos inputs de agendamento/sleep para o Guardar único
+let logFollow = true;
+
+function configDirty() { return cfgDirty.sched || cfgDirty.sleep || cfgDirty.rules; }
+function resetCfgDirty() { cfgDirty = { sched: false, sleep: false, rules: false }; }
+function updateCfgDirtyFlag() {
+  const f = $("#cfgdirty");
+  if (f) f.textContent = configDirty() ? "alterações por gravar" : "";
+}
+function markCfg(section) { cfgDirty[section] = true; updateCfgDirtyFlag(); }
+
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined) node.setAttribute(k, v);
+  }
+  for (const c of children.flat()) {
+    if (c === null || c === undefined) continue;
+    node.append(c.nodeType ? c : document.createTextNode(c));
+  }
+  return node;
+}
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+function fmtTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit" }) +
+         " " + d.toLocaleTimeString("pt-PT");
+}
+function fmtHour(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString("pt-PT");
+}
+function fmtDur(s) {
+  if (s === null || s === undefined) return "—";
+  if (s < 60) return s.toFixed(1) + " s";
+  return Math.floor(s / 60) + " min " + Math.round(s % 60) + " s";
+}
+function countdown(iso) {
+  if (!iso) return "—";
+  let d = Math.round((new Date(iso) - Date.now()) / 1000);
+  if (d <= 0) return "agora";
+  if (d < 60) return "em " + d + " s";
+  if (d < 3600) return "em " + Math.floor(d / 60) + " min " + (d % 60) + " s";
+  return "em " + Math.floor(d / 3600) + " h " + Math.floor((d % 3600) / 60) + " min";
+}
+
+/* estado -> ícone + texto (nunca só cor) */
+function statusInfo(app) {
+  if (app.running) return { cls: "st-run", icon: "▶", label: "a executar" };
+  if (app.queued) return { cls: "st-timeout", icon: "⏳", label: "em fila" };
+  const last = app.last;
+  if (!last) return { cls: "st-none", icon: "○", label: app.enabled ? "sem execuções" : "desativada" };
+  if (last.status === "ok") return { cls: app.enabled ? "st-ok" : "st-off", icon: "✓", label: app.enabled ? "ok" : "ok · desativada" };
+  if (last.status === "timeout") return { cls: "st-timeout", icon: "⏱", label: "timeout" };
+  return { cls: "st-err", icon: "✕", label: last.status };
+}
+function statusEl(app) {
+  const s = statusInfo(app);
+  return el("span", { class: "status " + s.cls },
+    el("span", { class: "dot" }, s.icon), s.label);
+}
+function runStatusEl(h) {
+  const s = h.status === "ok" ? { cls: "st-ok", icon: "✓" } :
+            h.status === "timeout" ? { cls: "st-timeout", icon: "⏱" } :
+            { cls: "st-err", icon: "✕" };
+  return el("span", { class: "status " + s.cls }, el("span", { class: "dot" }, s.icon), h.status);
+}
+/* célula "Notificação / Mensagem" (ícone colorido + texto em tinta normal) */
+function notifCell(h) {
+  const parts = [];
+  for (const r of h.notified || [])
+    parts.push(el("div", { class: "msgline" }, el("span", { class: "ic err" }, "✕"), r));
+  for (const m of h.messages || [])
+    parts.push(el("div", { class: "msgline" }, el("span", { class: "ic info" }, "ℹ"), m));
+  return parts.length ? el("div", null, parts) : "—";
+}
+
+/* ---------------- API ---------------- */
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.msg || res.statusText);
+  return body;
+}
+
+async function refreshState() {
+  try {
+    STATE = await api("/api/state");
+    $("#conn").textContent = "atualizado " + new Date().toLocaleTimeString("pt-PT");
+    $("#conn").classList.remove("err");
+  } catch (e) {
+    $("#conn").textContent = "sem ligação ao scheduler";
+    $("#conn").classList.add("err");
+    return;
+  }
+  renderSleep(); renderWarnings(); renderLinks(); renderTiles(); renderApps(); renderRight();
+}
+
+function renderWarnings() {
+  const box = $("#warnbanner");
+  const globals = STATE.warnings || [];
+  const perApp = [];
+  for (const a of STATE.apps || [])
+    for (const w of (a.warnings || [])) perApp.push([a.name, w]);
+  if (!globals.length && !perApp.length) { box.replaceChildren(); return; }
+  const items = [
+    ...globals.map(w => el("li", null, w)),
+    ...perApp.map(([n, w]) => el("li", null, el("b", null, n + ": "), w)),
+  ];
+  box.replaceChildren(el("div", { class: "warnbanner" },
+    el("b", null, "⚠ " + items.length + " aviso(s) de configuração"),
+    el("ul", null, items)));
+}
+
+function renderSleep() {
+  const s = STATE.sleep_hours || {};
+  const badge = $("#sleep");
+  badge.style.display = "inline-block";   // explícito: vence o "display:none" da CSS
+  badge.title = "Clica para editar as sleep hours transversais.";
+  if (!s.enabled) {
+    badge.classList.remove("active");
+    badge.textContent = "😴 sleep hours: desligado";
+  } else if (s.active_now) {
+    badge.classList.add("active");
+    badge.textContent = "😴 sleep hours — retoma às " + (s.wakes_at || s.end);
+    badge.title = "Em pausa (" + s.start + "–" + s.end + "). Manual continua disponível. Clica para editar.";
+  } else {
+    badge.classList.remove("active");
+    badge.textContent = "😴 sleep hours " + s.start + "–" + s.end;
+  }
+}
+
+function closeModal() { $("#modal-root").replaceChildren(); }
+
+function openSleepModal() {
+  const s = (STATE && STATE.sleep_hours) || {};
+  const enabled = Object.assign(el("input", { type: "checkbox" }), { checked: !!s.enabled });
+  const start = Object.assign(el("input", { type: "time" }), { value: s.start || "22:00" });
+  const end = Object.assign(el("input", { type: "time" }), { value: s.end || "07:00" });
+  const modal = el("div", { class: "modal-bg", onclick: e => { if (e.target === e.currentTarget) closeModal(); } },
+    el("div", { class: "modal" },
+      el("h3", null, "Sleep hours transversais"),
+      el("div", { class: "hint" },
+        "Aplica-se a todas as apps, exceto as que ignoram ou definem horário próprio. A execução manual não é afetada."),
+      el("div", { class: "field" }, enabled, el("label", { style: "min-width:auto" }, "ativar")),
+      el("div", { class: "field" }, el("label", null, "início"), start),
+      el("div", { class: "field" }, el("label", null, "fim"), end),
+      el("div", { class: "modal-actions" },
+        el("button", { onclick: closeModal }, "Cancelar"),
+        el("button", { class: "primary", onclick: async () => {
+          try {
+            const r = await api("/api/sleep_hours", { method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ enabled: enabled.checked, start: start.value, end: end.value }) });
+            toast(r.msg); closeModal(); refreshState();
+          } catch (e) { toast("Erro: " + e.message); }
+        } }, "Guardar"))));
+  $("#modal-root").replaceChildren(modal);
+}
+
+function openSettingsModal() {
+  const s = (STATE && STATE.settings) || {};
+  const host = Object.assign(el("input", { type: "text", style: "width:140px" }), { value: s.host || "127.0.0.1" });
+  const port = Object.assign(el("input", { type: "number", min: "1", max: "65535", style: "width:100px" }), { value: s.port || 8765 });
+  const openStart = Object.assign(el("input", { type: "checkbox" }), { checked: !!s.open_on_start });
+  const maxPar = Object.assign(el("input", { type: "number", min: "0", style: "width:100px" }), { value: s.max_parallel || 0 });
+  const roots = Object.assign(el("textarea", { rows: "4",
+    style: "width:100%; font:12px var(--mono); background:var(--page); color:var(--ink); border:1px solid var(--hairline); border-radius:6px; padding:6px 8px; resize:vertical" }),
+    { value: ((STATE && STATE.apps_roots) || []).join("\n") });
+
+  /* editor de links (nome = URL) */
+  const linksObj = (STATE && STATE.links) || {};
+  let linkRows = Object.entries(linksObj).map(([name, url]) => ({ name, url }));
+  const linksBox = el("div", null);
+  function renderLinks() {
+    const rows = linkRows.map((lk, i) =>
+      el("div", { class: "field", style: "flex-wrap:wrap" },
+        Object.assign(el("input", { type: "text", placeholder: "nome", style: "width:110px" }),
+          { value: lk.name, oninput: e => { lk.name = e.target.value; } }),
+        Object.assign(el("input", { type: "text", placeholder: "https://…", style: "width:260px" }),
+          { value: lk.url, oninput: e => { lk.url = e.target.value; } }),
+        el("button", { onclick: () => { linkRows.splice(i, 1); renderLinks(); } }, "✕")));
+    linksBox.replaceChildren(
+      rows.length ? el("div", null, rows) : el("div", { class: "hint" }, "— sem links —"),
+      el("button", { style: "margin-top:6px", onclick: () => { linkRows.push({ name: "", url: "" }); renderLinks(); } },
+        "+ adicionar link"));
+  }
+  renderLinks();
+
+  const modal = el("div", { class: "modal-bg", onclick: e => { if (e.target === e.currentTarget) closeModal(); } },
+    el("div", { class: "modal", style: "width:min(560px,94vw); max-height:88vh; overflow:auto" },
+      el("h3", null, "Definições globais"),
+      el("div", { class: "cfg-section-title" }, "Dashboard"),
+      el("div", { class: "field" }, el("label", null, "host"), host),
+      el("div", { class: "field" }, el("label", null, "port"), port),
+      el("div", { class: "field" }, openStart, el("label", { style: "min-width:auto" }, "abrir o dashboard ao arrancar")),
+      el("div", { class: "hint" }, "host e port só têm efeito depois de reiniciar."),
+      el("div", { class: "cfg-section-title" }, "Execução"),
+      el("div", { class: "field" }, el("label", null, "máx. em paralelo"), maxPar,
+        el("span", null, "(0 = sem limite)")),
+      el("div", { class: "hint" }, "máx. em paralelo só tem efeito depois de reiniciar."),
+      el("div", { class: "cfg-section-title" }, "Apps — raízes (uma pasta por linha)"),
+      roots,
+      el("div", { class: "hint" }, "Onde o scheduler procura apps. Aplica-se ao vivo (redeteta apps ao guardar)."),
+      el("div", { class: "cfg-section-title" }, "Links (atalhos do topo e do tray)"),
+      linksBox,
+      el("div", { class: "modal-actions" },
+        el("button", { onclick: closeModal }, "Cancelar"),
+        el("button", { class: "primary", onclick: async () => {
+          const links = {};
+          for (const lk of linkRows) if (lk.name.trim() && lk.url.trim()) links[lk.name.trim()] = lk.url.trim();
+          const rootsList = roots.value.split("\n").map(x => x.trim()).filter(Boolean);
+          try {
+            const r = await api("/api/settings", { method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ host: host.value, port: port.value,
+                open_on_start: openStart.checked, max_parallel: maxPar.value,
+                links, roots: rootsList }) });
+            toast(r.msg); closeModal(); refreshState();
+          } catch (e) { toast("Erro: " + e.message); }
+        } }, "Guardar definições"))));
+  $("#modal-root").replaceChildren(modal);
+}
+
+async function loadRules() {
+  /* carrega o objeto RULES do servidor (usado no arranque e no "Repor") */
+  try { RULES = await api("/api/rules"); } catch (e) { /* mantém as últimas */ }
+}
+
+async function refreshRules() {
+  /* Só actualiza o objeto RULES quando NÃO há um editor aberto (app selecionada)
+     nem edições por gravar — senão os inputs do editor ficam ligados a um objeto
+     que é substituído por baixo, perdendo edições e apagando com dois cliques. */
+  if (configDirty() || selected) return;
+  const fresh = await api("/api/rules").catch(() => null);
+  if (fresh && !configDirty() && !selected) RULES = fresh;   // revalida após o await
+}
+
+async function runNow(name) {
+  try { const r = await api("/api/run?app=" + encodeURIComponent(name), { method: "POST" }); toast(r.msg); }
+  catch (e) { toast("Erro: " + e.message); }
+  refreshState();
+}
+
+async function toggleApp(name, enabled) {
+  try {
+    const r = await api("/api/toggle?app=" + encodeURIComponent(name), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    toast(r.msg);
+  } catch (e) { toast("Erro: " + e.message); }
+  refreshState();
+}
+
+/* ---------------- navegação ---------------- */
+
+function confirmDiscard() {
+  if (!configDirty()) return true;
+  return confirm("Tens alterações por guardar na Configuração desta app. Continuar sem gravar?");
+}
+
+function selectApp(name) {
+  if (name === selected) return;
+  if (!confirmDiscard()) return;
+  resetCfgDirty();
+  selected = name;
+  histOpen = null;
+  const url = new URL(location);
+  url.searchParams.set("app", name);
+  history.replaceState(null, "", url);
+  renderApps();
+  renderRight();
+}
+
+function clearSelection() {
+  if (selected === null) return;
+  if (!confirmDiscard()) return;
+  resetCfgDirty();
+  selected = null;
+  histOpen = null;
+  const url = new URL(location);
+  url.searchParams.delete("app");
+  history.replaceState(null, "", url);
+  renderApps();
+  renderRight();
+}
+
+/* confirmação ao fechar/refrescar a página com alterações por gravar */
+window.addEventListener("beforeunload", (e) => {
+  if (configDirty()) { e.preventDefault(); e.returnValue = ""; }
+});
+
+/* ---------------- render (cabeçalho, tiles, cards) ---------------- */
+
+function renderLinks() {
+  const nav = $("#links");
+  nav.replaceChildren();
+  for (const [name, url] of Object.entries(STATE.links || {})) {
+    nav.append(el("a", { href: url, target: "_blank", rel: "noopener" }, name + " ↗"));
+  }
+}
+
+function renderTiles() {
+  const apps = STATE.apps;
+  const running = apps.filter(a => a.running).length;
+  const queued = apps.filter(a => a.queued).length;
+  const failed = apps.filter(a => a.last && a.last.status !== "ok").length;
+  const nexts = apps.map(a => a.next_run).filter(Boolean).sort();
+  const mp = STATE.max_parallel || 0;
+  const runLabel = mp ? "Em execução (máx. " + mp + ")" : "Em execução";
+  const runValue = queued ? running + " · " + queued + " em fila" : String(running);
+  const tiles = [
+    ["Apps detetadas", String(apps.length), null],
+    [runLabel, runValue, running ? "▶" : null],
+    ["Com falha na última execução", String(failed), failed ? "✕" : null],
+    ["Próxima execução", nexts.length ? countdown(nexts[0]) : "—", null],
+  ];
+  $("#tiles").replaceChildren(...tiles.map(([label, value, mark]) =>
+    el("div", { class: "tile" },
+      el("div", { class: "label" }, label),
+      el("div", { class: "value" }, value, mark ? " " : "", mark ?
+        el("small", null, mark) : null))));
+}
+
+function renderApps() {
+  const list = $("#applist");
+  list.replaceChildren();
+  if (!STATE.apps.length) {
+    const roots = STATE.apps_roots || [];
+    list.append(el("div", { class: "panel" },
+      el("div", { class: "empty" },
+        roots.length
+          ? ["Nenhuma app encontrada em:", el("br"),
+             ...roots.map(r => el("div", null, el("code", null, r))),
+             "Cria uma sub-pasta com main.py ou main.bat."]
+          : ["Nenhuma raiz de apps configurada.", el("br"),
+             "Define « roots » na secção [Apps] de ",
+             el("code", null, STATE.config_path || "scheduler.ini"),
+             " e reinicia o scheduler."])));
+    return;
+  }
+  for (const app of STATE.apps) {
+    const card = el("div", {
+      class: "card" + (app.name === selected ? " sel" : ""),
+      onclick: () => { selectApp(app.name); },
+    },
+      el("div", { class: "row1" },
+        el("span", { class: "name" }, app.name),
+        el("span", { class: "kind" }, app.kind === "py" ? "main.py" : "main.bat"),
+        (app.warnings && app.warnings.length)
+          ? el("span", { class: "warn-tag", title: app.warnings.join("\n") }, "⚠")
+          : null,
+        statusEl(app)),
+      el("div", { class: "meta" },
+        el("span", null, !app.enabled ? "agendamento desligado" : scheduleLabel(app)),
+        el("span", null, "última: " + (app.last ? fmtTime(app.last.end) : "—")),
+        app.sleeping
+          ? el("span", { class: "sleep-note" }, "😴 em pausa (sleep hours)")
+          : app.schedule_mode === "chain"
+          ? el("span", null, "encadeada")
+          : el("span", { "data-next": app.next_run || "" }, app.enabled ? "próxima: " + countdown(app.next_run) : "")),
+    );
+    list.append(card);
+  }
+}
+
+/* ---------------- painel direito ---------------- */
+
+function renderRight() {
+  const app = STATE && STATE.apps.find(a => a.name === selected);
+  if (app) renderDetail(app);
+  else renderOverview();
+}
+
+/* --- homepage: visão geral das execuções de todas as apps --- */
+
+function allRuns() {
+  const rows = [];
+  for (const app of (STATE.apps || []))
+    for (const h of (app.history || []))
+      rows.push(Object.assign({ app: app.name }, h));
+  rows.sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")));
+  return rows.slice(0, 50);
+}
+
+function runsKey(rows) {
+  return JSON.stringify(rows.map(h => [h.app, h.start, h.end, h.status, h.returncode,
+    (h.notified || []).length, (h.messages || []).length]));
+}
+
+function renderOverview() {
+  const panel = $("#detail");
+  const rows = allRuns();
+  const key = runsKey(rows);
+  if (panel.dataset.view === "overview" && panel.dataset.key === key) return;
+  delete panel.dataset.app;
+  panel.dataset.view = "overview";
+  panel.dataset.key = key;
+
+  const table = el("table", null,
+    el("thead", null, el("tr", null,
+      el("th", null, "App"), el("th", null, "Início"), el("th", null, "Fim"),
+      el("th", null, "RC"), el("th", null, "Estado"),
+      el("th", null, "Notificação / Mensagem"))),
+    el("tbody", null, rows.map(h =>
+      el("tr", { class: "ov", onclick: () => selectApp(h.app) },
+        el("td", null, h.app),
+        el("td", null, fmtTime(h.start)),
+        el("td", null, fmtHour(h.end)),
+        el("td", null, h.returncode === null || h.returncode === undefined ? "—" : String(h.returncode)),
+        el("td", null, runStatusEl(h)),
+        el("td", null, notifCell(h))))));
+
+  panel.replaceChildren(
+    el("h2", null, "Visão geral das execuções"),
+    el("div", { class: "hint", style: "margin:6px 0 12px" },
+      "Clica numa linha para abrir a app. As «Mensagens de sucesso / warning» definidas em cada app aparecem aqui (ℹ), tal como as notificações de erro (✕)."),
+    rows.length ? table : el("div", { class: "empty" }, "Ainda sem execuções."));
+}
+
+/* --- detalhe de uma app --- */
+
+function scheduleLabel(app) {
+  if (app.schedule_mode === "chain") return "após " + (app.run_after || []).join(", ");
+  if (app.cron) return "cron " + app.cron;
+  return "a cada " + app.interval_minutes + " min";
+}
+
+function hintText(app) {
+  let next;
+  if (!app.enabled) next = " · agendamento desligado";
+  else if (app.schedule_mode === "chain") next = " · encadeada (à espera da app a montante)";
+  else if (app.sleeping) next = " · 😴 em pausa (sleep hours)";
+  else next = " · próxima " + countdown(app.next_run);
+  return app.dir +
+    " · " + scheduleLabel(app) +
+    (app.timeout_minutes ? " · timeout " + app.timeout_minutes + " min" : "") +
+    (app.python_exe ? " · python: " + app.python_exe : "") +
+    ((app.downstream && app.downstream.length) ? " · precede: " + app.downstream.join(", ") : "") +
+    (app.ignore_sleep_hours ? " · ignora sleep hours" : "") +
+    next;
+}
+
+function renderDetail(app) {
+  const panel = $("#detail");
+  if (panel.dataset.app !== app.name) {
+    /* construir o esqueleto UMA vez por app; os refreshes só atualizam
+       partes sem inputs — os editores nunca são reconstruídos pelo polling */
+    delete panel.dataset.view;
+    delete panel.dataset.key;
+    panel.dataset.app = app.name;
+    detailTab = "monitor";          // abre sempre na Monitorização
+    resetCfgDirty();
+    const toggle = el("input", { type: "checkbox", id: "dtoggle" });
+    toggle.checked = app.enabled;
+    toggle.addEventListener("change", e => toggleApp(app.name, e.target.checked));
+    const tabBtn = (id, label) => {
+      const b = el("button", { class: "tab", onclick: () => setDetailTab(id) }, label);
+      b.dataset.tab = id;
+      return b;
+    };
+    panel.replaceChildren(
+      el("h2", null,
+        el("button", { class: "back", onclick: clearSelection, title: "Visão geral" }, "←"),
+        app.name, el("span", { class: "kind" }, app.kind === "py" ? "main.py" : "main.bat"),
+        el("span", { id: "dstatus" }),
+        el("div", { class: "actions" },
+          el("label", { class: "sw" }, toggle, "agendamento"),
+          el("button", { class: "primary", onclick: () => runNow(app.name) }, "Executar agora"))),
+      el("div", { class: "hint", id: "dhint", style: "margin-top:6px" }),
+      el("div", { id: "dwarn" }),
+      el("div", { class: "tabs" }, tabBtn("monitor", "Monitorização"), tabBtn("config", "Configuração")),
+
+      /* --- aba Monitorização (só consulta) --- */
+      el("div", { id: "tab-monitor" },
+        el("h3", null, "Histórico de execuções"),
+        el("div", { id: "histbox" }),
+        el("h3", null, "Log (Grafana Loki · logs/" + app.name + ".log)"),
+        el("div", { id: "logwrap" },
+          el("label", { class: "sw", style: "margin-bottom:6px" },
+            Object.assign(el("input", { type: "checkbox" }), { checked: logFollow,
+              onchange: e => { logFollow = e.target.checked; } }),
+            "seguir novas linhas"),
+          el("div", { id: "logbox" }, "a carregar…"))),
+
+      /* --- aba Configuração (só edição, um único Guardar) --- */
+      el("div", { id: "tab-config", style: "display:none" },
+        el("div", { class: "cfg-actions" },
+          el("button", { class: "primary", onclick: () => saveConfig(app) }, "Guardar configuração"),
+          el("button", { onclick: () => resetConfig(app) }, "Repor"),
+          el("span", { class: "dirty-flag", id: "cfgdirty" }, "")),
+        el("div", { class: "cfg-section-title" }, "Agendamento"),
+        el("div", { id: "schedbox" }),
+        el("div", { class: "cfg-section-title" }, "Sleep hours desta app"),
+        el("div", { id: "sleepbox" }),
+        el("div", { id: "rulesbox" })),
+    );
+    renderRulesEditor(app.name);
+    renderScheduleEditor(app);
+    renderSleepEditor(app);
+    setDetailTab(detailTab);
+    refreshLogs(true);
+  }
+  updateDetail(app);
+}
+
+function setDetailTab(name) {
+  detailTab = name;
+  const mon = $("#tab-monitor"), cfg = $("#tab-config");
+  if (mon) mon.style.display = name === "monitor" ? "" : "none";
+  if (cfg) cfg.style.display = name === "config" ? "" : "none";
+  document.querySelectorAll("#detail .tab").forEach(
+    b => b.classList.toggle("active", b.dataset.tab === name));
+}
+
+function renderScheduleEditor(app) {
+  const box = $("#schedbox");
+  if (!box) return;
+  const others = (STATE.apps || []).map(a => a.name).filter(n => n !== app.name);
+  const mode = el("select", null,
+    el("option", { value: "interval" }, "Intervalo (minutos)"),
+    el("option", { value: "cron" }, "Cron (horário)"));
+  mode.value = app.cron ? "cron" : "interval";
+  const interval = Object.assign(el("input", { type: "number", min: "1", style: "width:90px" }),
+    { value: app.interval_minutes || 60, oninput: () => markCfg("sched") });
+  const cron = Object.assign(el("input", { type: "text", style: "width:170px", placeholder: "0 9 * * 1-5" }),
+    { value: app.cron || "", oninput: () => markCfg("sched") });
+  const timeout = Object.assign(el("input", { type: "number", min: "0", style: "width:90px" }),
+    { value: app.timeout_minutes || 0, oninput: () => markCfg("sched") });
+  const runAfter = Object.assign(el("input", { type: "text", style: "width:100%",
+    placeholder: "vazio = por tempo; ex.: extrair, transformar", list: "apps-list" }),
+    { value: (app.run_after || []).join(", "), oninput: () => markCfg("sched") });
+  const pyExe = Object.assign(el("input", { type: "text", style: "width:100%",
+    placeholder: "vazio = interpretador do scheduler; ex.: .venv\\Scripts\\python.exe" }),
+    { value: app.python_exe || "", oninput: () => markCfg("sched") });
+  const datalist = el("datalist", { id: "apps-list" }, ...others.map(n => el("option", { value: n })));
+  const intervalRow = el("div", { class: "field" }, el("label", null, "intervalo"), interval, el("span", null, "min"));
+  const cronRow = el("div", { class: "field" }, el("label", null, "cron"), cron);
+  const sync = () => {
+    intervalRow.style.display = mode.value === "interval" ? "" : "none";
+    cronRow.style.display = mode.value === "cron" ? "" : "none";
+  };
+  mode.addEventListener("change", () => { sync(); markCfg("sched"); });
+  sync();
+  cfgInputs.schedule = { mode, interval, cron, timeout, runAfter, pyExe };
+  box.replaceChildren(el("div", { class: "sleepbox" }, datalist,
+    el("div", { class: "field" }, el("label", null, "modo"), mode),
+    intervalRow, cronRow,
+    el("div", { class: "field" }, el("label", null, "timeout"), timeout, el("span", null, "min (0 = sem limite)")),
+    el("div", { class: "field", style: "flex-wrap:wrap" },
+      el("label", null, "correr após"), runAfter),
+    el("div", { class: "hint" },
+      "«correr após» encadeia: a app corre quando a(s) app(s) indicada(s) terminam com sucesso, em vez de por tempo."),
+    el("div", { class: "field", style: "flex-wrap:wrap" },
+      el("label", null, "python_exe"), pyExe),
+    el("div", { class: "hint" },
+      "Interpretador Python próprio da app (ex.: venv). Vazio = usa o mesmo do scheduler.")));
+}
+
+function renderSleepEditor(app) {
+  const box = $("#sleepbox");
+  if (!box) return;
+  const mode = app.sleep_mode || "inherit";
+  const g = (STATE.sleep_hours || {});
+  const transversal = g.enabled ? (g.start + "–" + g.end) : "desligadas";
+  const sel = el("select", null,
+    el("option", { value: "inherit" }, "Herdar a transversal (" + transversal + ")"),
+    el("option", { value: "ignore" }, "Ignorar — app crítica, nunca dorme"),
+    el("option", { value: "custom" }, "Horário próprio…"));
+  sel.value = mode;
+  const start = Object.assign(el("input", { type: "time" }),
+    { value: (app.app_sleep_hours && app.app_sleep_hours.start) || "22:00", oninput: () => markCfg("sleep") });
+  const end = Object.assign(el("input", { type: "time" }),
+    { value: (app.app_sleep_hours && app.app_sleep_hours.end) || "07:00", oninput: () => markCfg("sleep") });
+  const customRow = el("div", { class: "field", style: "flex-wrap:wrap" },
+    el("label", null, "horário"), start, el("span", null, "→"), end);
+  const sync = () => { customRow.style.display = sel.value === "custom" ? "" : "none"; };
+  sel.addEventListener("change", () => { sync(); markCfg("sleep"); });
+  sync();
+  cfgInputs.sleep = { sel, start, end };
+  box.replaceChildren(el("div", { class: "sleepbox" },
+    el("div", { class: "field" }, el("label", null, "modo"), sel),
+    customRow));
+}
+
+async function saveConfig(app) {
+  const done = [], errors = [];
+  if (cfgDirty.sched && cfgInputs.schedule) {
+    const s = cfgInputs.schedule;
+    try {
+      await api("/api/app_schedule?app=" + encodeURIComponent(app.name), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: s.mode.value, interval_minutes: s.interval.value,
+          cron: s.cron.value, timeout_minutes: s.timeout.value, run_after: s.runAfter.value,
+          python_exe: s.pyExe.value }) });
+      cfgDirty.sched = false; done.push("agendamento");
+    } catch (e) { errors.push("agendamento (" + e.message + ")"); }
+  }
+  if (cfgDirty.sleep && cfgInputs.sleep) {
+    const s = cfgInputs.sleep;
+    try {
+      await api("/api/app_sleep?app=" + encodeURIComponent(app.name), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: s.sel.value, start: s.start.value, end: s.end.value }) });
+      cfgDirty.sleep = false; done.push("sleep hours");
+    } catch (e) { errors.push("sleep hours (" + e.message + ")"); }
+  }
+  if (cfgDirty.rules) {
+    const clean = sec => {
+      if (!sec) return;
+      for (const f of ["patterns", "messages"])
+        if (sec[f]) sec[f] = sec[f].filter(p => (p.pattern || "").trim());
+    };
+    clean(RULES.defaults);
+    for (const k of Object.keys(RULES.apps || {})) clean(RULES.apps[k]);
+    try {
+      await api("/api/rules", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(RULES) });
+      cfgDirty.rules = false; done.push("regras");
+    } catch (e) { errors.push("regras (" + e.message + ")"); }
+  }
+  if (errors.length) toast("Erro em " + errors.join("; "));
+  else if (done.length) toast("Configuração guardada: " + done.join(", ") + ".");
+  else toast("Nada para guardar.");
+  updateCfgDirtyFlag();
+  await refreshState();
+  if (!cfgDirty.rules) renderRulesEditor(app.name);   // reflete padrões vazios removidos
+}
+
+async function resetConfig(app) {
+  resetCfgDirty();
+  await loadRules();
+  const cur = (STATE && STATE.apps.find(a => a.name === app.name)) || app;
+  renderScheduleEditor(cur);
+  renderSleepEditor(cur);
+  renderRulesEditor(cur.name);
+  updateCfgDirtyFlag();
+}
+
+function updateDetail(app) {
+  const s = statusEl(app);
+  s.id = "dstatus";
+  $("#dstatus").replaceWith(s);
+  const t = $("#dtoggle");
+  if (t && document.activeElement !== t) t.checked = app.enabled;
+  $("#dhint").textContent = hintText(app);
+  const dw = $("#dwarn");
+  const warns = app.warnings || [];
+  const wkey = warns.join("|");
+  if (dw && dw.dataset.key !== wkey) {
+    dw.dataset.key = wkey;
+    if (warns.length) {
+      dw.replaceChildren(el("div", { class: "warnlist" },
+        el("b", null, "⚠ avisos de configuração desta app:"),
+        el("ul", null, warns.map(w => el("li", null, w)))));
+    } else {
+      dw.replaceChildren();
+    }
+  }
+  const hb = $("#histbox");
+  const key = runsKey(app.history || []) + "|" + histOpen;
+  if (hb.dataset.key !== key) {
+    hb.dataset.key = key;
+    hb.replaceChildren(renderHistory(app));
+  }
+}
+
+function renderHistory(app) {
+  const hist = (app.history || []).slice().reverse();
+  if (!hist.length) return el("div", { class: "hint" }, "Ainda sem execuções.");
+  const rows = hist.map(h =>
+    el("tr", { class: "hist", onclick: () => {
+        histOpen = histOpen === h.start ? null : h.start;
+        updateDetail(app);
+      } },
+      el("td", null, fmtTime(h.start)),
+      el("td", null, fmtDur(h.duration_s)),
+      el("td", null, h.origem || ""),
+      el("td", null, h.returncode === null || h.returncode === undefined ? "—" : String(h.returncode)),
+      el("td", null, runStatusEl(h)),
+      el("td", null, notifCell(h))));
+  const table = el("table", null,
+    el("thead", null, el("tr", null,
+      el("th", null, "Início"), el("th", null, "Duração"), el("th", null, "Origem"),
+      el("th", null, "RC"), el("th", null, "Estado"), el("th", null, "Notificação / Mensagem"))),
+    el("tbody", null, rows));
+  const parts = [table];
+  const open = hist.find(h => h.start === histOpen);
+  if (open) {
+    parts.push(el("div", { class: "out" },
+      open.stdout_tail ? open.stdout_tail : "(sem stdout)",
+      open.stderr_tail ? el("div", { class: "err" }, "\n--- stderr ---\n" + open.stderr_tail) : null));
+  }
+  parts.push(el("div", { class: "hint", style: "margin-top:4px" }, "Clica numa linha para ver o output."));
+  return el("div", null, parts);
+}
+
+/* ------------- editor de regras (notificações + mensagens) ------------- */
+
+function ruleSection(target) {
+  if (!RULES) return null;
+  let sec;
+  if (target === "defaults") {
+    sec = RULES.defaults = RULES.defaults || {};
+    if (sec.notify_on_error === undefined) sec.notify_on_error = true;
+  } else {
+    RULES.apps = RULES.apps || {};
+    sec = RULES.apps[target] = RULES.apps[target] || {};
+  }
+  sec.patterns = sec.patterns || [];
+  sec.messages = sec.messages || [];
+  return sec;
+}
+
+function markDirty() { markCfg("rules"); }   // alterações nas regras
+
+function mkPatternRows(section, field, title, appName) {
+  const rows = (section[field] || []).map((p, i) =>
+    el("tr", { class: "rule-row" },
+      el("td", null, Object.assign(el("input", { type: "checkbox", title: "ativo" }),
+        { checked: p.enabled !== false, onchange: e => { p.enabled = e.target.checked; markDirty(); } })),
+      el("td", { style: "width:100%" }, Object.assign(el("input", { type: "text", style: "width:100%" }),
+        { value: p.pattern || "", oninput: e => { p.pattern = e.target.value; markDirty(); } })),
+      el("td", null, el("label", { class: "sw" },
+        Object.assign(el("input", { type: "checkbox" }),
+          { checked: !!p.is_regex, onchange: e => { p.is_regex = e.target.checked; markDirty(); } }), "regex")),
+      el("td", null, el("button", { onclick: () => {
+        section[field].splice(i, 1); markDirty(); renderRulesEditor(appName);
+      } }, "✕"))));
+  return el("div", null,
+    el("div", { class: "hint", style: "margin:8px 0 4px" }, title),
+    rows.length ? el("table", null, el("tbody", null, rows))
+                : el("div", { class: "hint" }, "— sem padrões —"),
+    el("button", { style: "margin-top:6px", onclick: () => {
+      section[field] = section[field] || [];
+      section[field].push({ pattern: "", is_regex: false, enabled: true });
+      markDirty(); renderRulesEditor(appName);
+    } }, "+ adicionar padrão"));
+}
+
+function renderRulesEditor(appName) {
+  const box = $("#rulesbox");
+  if (!box) return;
+  if (!RULES) { box.replaceChildren(el("div", { class: "hint" }, "a carregar regras…")); return; }
+
+  const sec = ruleSection(appName);
+  const defaults = ruleSection("defaults");
+  const effErr = sec.notify_on_error !== undefined ? sec.notify_on_error : defaults.notify_on_error;
+
+  box.replaceChildren(
+    el("div", { class: "cfg-section-title" }, "Notificações de erro"),
+    el("div", { class: "hint" },
+      "Uma notificação Windows é enviada quando o código de saída ≠ 0 (se ativo) ou quando um padrão abaixo aparece no output."),
+    el("label", { class: "sw", style: "margin-top:8px" },
+      Object.assign(el("input", { type: "checkbox" }),
+        { checked: !!effErr, onchange: e => { sec.notify_on_error = e.target.checked; markDirty(); } }),
+      "notificar quando o código de saída ≠ 0"),
+    mkPatternRows(sec, "patterns", "Padrões desta app (" + appName + "):", appName),
+    mkPatternRows(defaults, "patterns", "Padrões globais (todas as apps):", appName),
+
+    el("div", { class: "cfg-section-title" }, "Mensagens de sucesso / warning"),
+    el("div", { class: "hint" },
+      "Linhas do output que casem com estes padrões são destacadas (ℹ) na visão geral da homepage e no histórico — sem notificação Windows."),
+    mkPatternRows(sec, "messages", "Padrões desta app (" + appName + "):", appName),
+    mkPatternRows(defaults, "messages", "Padrões globais (todas as apps):", appName));
+}
+
+/* ------------- log viewer ------------- */
+
+async function refreshLogs(force) {
+  if (!selected) return;
+  const box = $("#logbox");
+  if (!box) return;
+  let data;
+  try { data = await api("/api/logs?app=" + encodeURIComponent(selected) + "&lines=300"); }
+  catch (e) { return; }
+  if (!force && box.dataset.app === selected && box.dataset.n === String(data.lines.length)) return;
+  box.dataset.app = selected; box.dataset.n = String(data.lines.length);
+  box.replaceChildren(...data.lines.map(l =>
+    el("div", null,
+      el("span", { class: "t" }, (l.ts ? fmtTime(l.ts) : "") + " "),
+      el("span", { class: "lv " + (l.level || "") }, (l.level || "").toUpperCase().padEnd(5) + " "),
+      l.event ? el("span", { class: "ev" }, "[" + l.event + "] ") : null,
+      l.msg || "")));
+  if (!data.lines.length) box.textContent = "(log vazio — a app ainda não executou)";
+  if (logFollow) box.scrollTop = box.scrollHeight;
+}
+
+/* ------------- arranque + polling ------------- */
+
+$("#home").addEventListener("click", clearSelection);
+$("#sleep").addEventListener("click", openSleepModal);
+$("#settingsbtn").addEventListener("click", openSettingsModal);
+window.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+$("#rescanbtn").addEventListener("click", async () => {
+  const btn = $("#rescanbtn");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/rescan", { method: "POST" });
+    toast(r.msg);
+    /* se a app selecionada desapareceu, volta à visão geral */
+    if (selected && r.removed && r.removed.includes(selected)) { resetCfgDirty(); clearSelection(); }
+  } catch (e) { toast("Erro no rescan: " + e.message); }
+  btn.disabled = false;
+  refreshState();
+});
+
+(async function init() {
+  await loadRules();
+  await refreshState();
+  setInterval(refreshState, 2000);
+  setInterval(refreshRules, 5000);
+  setInterval(() => refreshLogs(false), 3000);
+  /* contagem decrescente fluida sem esperar pelo polling (só toca nos cards) */
+  setInterval(() => {
+    document.querySelectorAll("[data-next]").forEach(n => {
+      if (n.dataset.next) n.textContent = "próxima: " + countdown(n.dataset.next);
+    });
+  }, 1000);
+})();
+</script>
+</body>
+</html>
