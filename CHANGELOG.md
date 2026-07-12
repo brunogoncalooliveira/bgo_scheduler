@@ -7,6 +7,15 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.10] - 2026-07-12
+
+### Alterado
+- Timestamps dos logs, do histórico e de `next_run` passam de UTC (`…Z`) para
+  **hora local com offset explícito** (ex.: `2026-07-12T21:06:01+01:00`).
+  Continua RFC3339 válido para o Promtail/Grafana, mas os ficheiros e o log
+  viewer passam a mostrar o relógio local (antes apareciam 1 h atrás em
+  Portugal no verão). Entradas antigas com `Z` continuam a ser interpretadas.
+
 ## [1.9.9] - 2026-07-11
 
 ### Corrigido
@@ -80,7 +89,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.9...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.10...HEAD
+[1.9.10]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.9...v1.9.10
 [1.9.9]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.8...v1.9.9
 [1.9.8]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.7...v1.9.8
 [1.9.7]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.6...v1.9.7

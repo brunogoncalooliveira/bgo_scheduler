@@ -46,7 +46,7 @@ duração e origem, e "Executar agora".
 ## Instalação
 
 ```bat
-pip install dist\bgo_scheduler-1.9.9-py3-none-any.whl
+pip install dist\bgo_scheduler-1.9.10-py3-none-any.whl
 ```
 
 **Sem dependências de runtime**: o ícone de tray é nativo do Windows (Win32
@@ -322,9 +322,12 @@ Cada linha de `logs\<app>.log` é um objeto JSON (mesmo para apps `main.bat`,
 porque é o scheduler que captura o stdout/stderr):
 
 ```json
-{"ts": "2026-07-08T16:38:34.229Z", "level": "error", "app": "app_fail",
+{"ts": "2026-07-08T16:38:34.229+01:00", "level": "error", "app": "app_fail",
  "event": "stderr", "msg": "ERRO: falha ao ligar à base de dados"}
 ```
+
+O `ts` é a **hora local com offset explícito** (RFC3339): legível diretamente
+nos ficheiros e sem ambiguidade para o Promtail/Grafana.
 
 As linhas de `stdout`/`stderr` são escritas **à medida que a app corre**
 (logs live no Loki), não só no fim da execução.

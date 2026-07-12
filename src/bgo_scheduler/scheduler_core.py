@@ -34,7 +34,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -119,7 +119,8 @@ STAGGER_S = 2           # desfasamento entre apps na primeira execução
 
 
 def _now_iso():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    # hora local com offset (RFC3339): legível nos logs/dashboard e sem ambiguidade
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 # ---------------------------------------------------------------------------
@@ -666,8 +667,8 @@ class AppRuntime:
                 "running": self.running,
                 "queued": self.queued,
                 "next_run": (
-                    datetime.fromtimestamp(self.next_run, tz=timezone.utc)
-                    .isoformat(timespec="seconds").replace("+00:00", "Z")
+                    datetime.fromtimestamp(self.next_run).astimezone()
+                    .isoformat(timespec="seconds")
                     if self.next_run else None
                 ),
                 "last": copy.deepcopy(self.last),

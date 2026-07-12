@@ -4,6 +4,7 @@ import json
 import sys
 import threading
 import time
+from datetime import datetime
 from datetime import time as dtime
 
 from bgo_scheduler.config import SleepHours
@@ -71,9 +72,12 @@ def test_loki_json_log_format(make_app, make_runtime):
     rt.run_once("teste")
     lines = log_lines(rt.registry.config, "logfmt")
     assert lines
+    local_offset = datetime.now().astimezone().utcoffset()
     for entry in lines:
         assert {"ts", "level", "app", "event", "msg"} <= set(entry)
-        assert entry["ts"].endswith("Z")
+        # hora LOCAL com offset explícito (RFC3339), não UTC/Z
+        ts = datetime.fromisoformat(entry["ts"])
+        assert ts.utcoffset() == local_offset
     events = [x["event"] for x in lines]
     assert "run_start" in events and "stdout" in events and "run_end" in events
 

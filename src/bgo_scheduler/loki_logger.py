@@ -9,7 +9,7 @@ O Promtail/Alloy lê estes ficheiros com um pipeline `json` (exemplo no README.m
 import json
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -21,12 +21,18 @@ _loggers = {}
 
 
 class LokiJsonFormatter(logging.Formatter):
-    """Formata cada registo como uma linha JSON com timestamp RFC3339 (UTC)."""
+    """Formata cada registo como uma linha JSON com timestamp RFC3339.
+
+    Hora LOCAL com offset explícito (ex.: 2026-07-12T10:34:56.123+01:00):
+    legível por humanos nos ficheiros/dashboard e continua RFC3339 válido
+    para o Promtail/Alloy (`format: RFC3339`) — o offset remove qualquer
+    ambiguidade, incluindo nas mudanças de hora.
+    """
 
     def format(self, record):
         entry = {
-            "ts": datetime.fromtimestamp(record.created, tz=timezone.utc)
-                  .isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "ts": datetime.fromtimestamp(record.created).astimezone()
+                  .isoformat(timespec="milliseconds"),
             "level": record.levelname.lower(),
             "app": getattr(record, "app", "scheduler"),
             "event": getattr(record, "event", "log"),
