@@ -250,6 +250,12 @@ function updateCfgDirtyFlag() {
 }
 function markCfg(section) { cfgDirty[section] = true; updateCfgDirtyFlag(); }
 
+/* escreve texto só quando muda — reconstruir nós DOM iguais destrói a seleção
+   de texto do utilizador a cada refresh */
+function setText(node, text) {
+  if (node && node.textContent !== text) node.textContent = text;
+}
+
 function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
   if (attrs) for (const [k, v] of Object.entries(attrs)) {
@@ -339,7 +345,7 @@ async function api(path, opts) {
 async function refreshState() {
   try {
     STATE = await api("/api/state");
-    $("#ver").textContent = STATE.version ? "v" + STATE.version : "";
+    setText($("#ver"), STATE.version ? "v" + STATE.version : "");
     $("#conn").textContent = "atualizado " + new Date().toLocaleTimeString("pt-PT");
     $("#conn").classList.remove("err");
   } catch (e) {
@@ -356,6 +362,9 @@ function renderWarnings() {
   const perApp = [];
   for (const a of STATE.apps || [])
     for (const w of (a.warnings || [])) perApp.push([a.name, w]);
+  const key = JSON.stringify([globals, perApp]);
+  if (box.dataset.key === key) return;   // nada mudou — não mexe no DOM
+  box.dataset.key = key;
   if (!globals.length && !perApp.length) { box.replaceChildren(); return; }
   const items = [
     ...globals.map(w => el("li", null, w)),
@@ -370,18 +379,20 @@ function renderSleep() {
   const s = STATE.sleep_hours || {};
   const badge = $("#sleep");
   badge.style.display = "inline-block";   // explícito: vence o "display:none" da CSS
-  badge.title = "Clica para editar as sleep hours transversais.";
+  let text, title = "Clica para editar as sleep hours transversais.";
   if (!s.enabled) {
     badge.classList.remove("active");
-    badge.textContent = "😴 sleep hours: desligado";
+    text = "😴 sleep hours: desligado";
   } else if (s.active_now) {
     badge.classList.add("active");
-    badge.textContent = "😴 sleep hours — retoma às " + (s.wakes_at || s.end);
-    badge.title = "Em pausa (" + s.start + "–" + s.end + "). Manual continua disponível. Clica para editar.";
+    text = "😴 sleep hours — retoma às " + (s.wakes_at || s.end);
+    title = "Em pausa (" + s.start + "–" + s.end + "). Manual continua disponível. Clica para editar.";
   } else {
     badge.classList.remove("active");
-    badge.textContent = "😴 sleep hours " + s.start + "–" + s.end;
+    text = "😴 sleep hours " + s.start + "–" + s.end;
   }
+  setText(badge, text);
+  badge.title = title;
 }
 
 function closeModal() { $("#modal-root").replaceChildren(); }
@@ -549,6 +560,9 @@ window.addEventListener("beforeunload", (e) => {
 
 function renderLinks() {
   const nav = $("#links");
+  const key = JSON.stringify(STATE.links || {});
+  if (nav.dataset.key === key) return;
+  nav.dataset.key = key;
   nav.replaceChildren();
   for (const [name, url] of Object.entries(STATE.links || {})) {
     nav.append(el("a", { href: url, target: "_blank", rel: "noopener" }, name + " ↗"));
@@ -556,21 +570,31 @@ function renderLinks() {
 }
 
 function renderTiles() {
+  const box = $("#tiles");
   const apps = STATE.apps;
   const running = apps.filter(a => a.running).length;
   const queued = apps.filter(a => a.queued).length;
   const failed = apps.filter(a => a.last && a.last.status !== "ok").length;
   const nexts = apps.map(a => a.next_run).filter(Boolean).sort();
+  const nextIso = nexts.length ? nexts[0] : null;
   const mp = STATE.max_parallel || 0;
+  /* chave estrutural — não inclui a contagem decrescente (essa é atualizada
+     ao vivo pelo intervalo de 1 s). Só reconstrói os tiles quando algo real
+     muda; reconstruí-los a cada 2 s apagava a seleção de texto do utilizador. */
+  const key = JSON.stringify([apps.length, running, queued, failed, mp, nextIso]);
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
   const runLabel = mp ? "Em execução (máx. " + mp + ")" : "Em execução";
   const runValue = queued ? running + " · " + queued + " em fila" : String(running);
+  const nextVal = el("span", nextIso ? { "data-countdown": nextIso } : null,
+    nextIso ? countdown(nextIso) : "—");
   const tiles = [
     ["Apps detetadas", String(apps.length), null],
     [runLabel, runValue, running ? "▶" : null],
     ["Com falha na última execução", String(failed), failed ? "✕" : null],
-    ["Próxima execução", nexts.length ? countdown(nexts[0]) : "—", null],
+    ["Próxima execução", nextVal, null],
   ];
-  $("#tiles").replaceChildren(...tiles.map(([label, value, mark]) =>
+  box.replaceChildren(...tiles.map(([label, value, mark]) =>
     el("div", { class: "tile" },
       el("div", { class: "label" }, label),
       el("div", { class: "value" }, value, mark ? " " : "", mark ?
@@ -579,6 +603,23 @@ function renderTiles() {
 
 function renderApps() {
   const list = $("#applist");
+  /* só reconstrói a lista quando muda algo estrutural (inclui a app
+     selecionada, para a classe .sel). A contagem decrescente dos cards é
+     atualizada ao vivo via [data-next], por isso o ISO cru de next_run entra
+     na chave, mas o texto que muda a cada segundo não — assim os cards não são
+     recriados a cada 2 s e a seleção de texto sobrevive. */
+  const key = JSON.stringify([
+    selected, STATE.apps_roots || [], STATE.config_path || "",
+    (STATE.apps || []).map(a => {
+      const s = statusInfo(a);
+      return [a.name, a.kind, a.enabled, (a.warnings || []).join(""),
+        s.cls, s.icon, s.label, a.last ? a.last.end : null,
+        a.sleeping, a.schedule_mode, a.next_run || "",
+        a.cron || "", a.interval_minutes, (a.run_after || []).join(",")];
+    }),
+  ]);
+  if (list.dataset.key === key) return;
+  list.dataset.key = key;
   list.replaceChildren();
   if (!STATE.apps.length) {
     const roots = STATE.apps_roots || [];
@@ -730,7 +771,7 @@ function renderDetail(app) {
       el("div", { id: "tab-monitor" },
         el("h3", null, "Histórico de execuções"),
         el("div", { id: "histbox" }),
-        el("h3", null, "Log (Grafana Loki · logs/" + app.name + ".log)"),
+        el("h3", null, "Logs (logs/" + app.name + ".log)"),
         el("div", { id: "logwrap" },
           el("label", { class: "sw", style: "margin-bottom:6px" },
             Object.assign(el("input", { type: "checkbox" }), { checked: logFollow,
@@ -893,12 +934,18 @@ async function resetConfig(app) {
 }
 
 function updateDetail(app) {
-  const s = statusEl(app);
-  s.id = "dstatus";
-  $("#dstatus").replaceWith(s);
+  const ds = $("#dstatus");
+  const si = statusInfo(app);
+  const sKey = si.cls + "|" + si.icon + "|" + si.label;
+  if (ds.dataset.key !== sKey) {   // só troca o badge quando o estado muda
+    const s = statusEl(app);
+    s.id = "dstatus";
+    s.dataset.key = sKey;
+    ds.replaceWith(s);
+  }
   const t = $("#dtoggle");
   if (t && document.activeElement !== t) t.checked = app.enabled;
-  $("#dhint").textContent = hintText(app);
+  setText($("#dhint"), hintText(app));
   const dw = $("#dwarn");
   const warns = app.warnings || [];
   const wkey = warns.join("|");
@@ -1070,7 +1117,10 @@ $("#rescanbtn").addEventListener("click", async () => {
   /* contagem decrescente fluida sem esperar pelo polling (só toca nos cards) */
   setInterval(() => {
     document.querySelectorAll("[data-next]").forEach(n => {
-      if (n.dataset.next) n.textContent = "próxima: " + countdown(n.dataset.next);
+      if (n.dataset.next) setText(n, "próxima: " + countdown(n.dataset.next));
+    });
+    document.querySelectorAll("[data-countdown]").forEach(n => {
+      setText(n, countdown(n.dataset.countdown));
     });
   }, 1000);
 })();

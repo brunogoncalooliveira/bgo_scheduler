@@ -77,6 +77,29 @@ def _ensure_hidden_console() -> None:
             ctypes.windll.user32.ShowWindow(hwnd, SW_HIDE)
 
 
+def _console_output_encoding() -> Optional[str]:
+    """Code page em que os programas de consola do Windows (cmd/.bat) escrevem.
+
+    Um ficheiro .bat imprime na *code page de saída da consola* — por omissão a
+    OEM (p. ex. cp850 em PT-PT), não a ANSI (cp1252). O ``subprocess`` com
+    ``encoding=None`` usaria a ANSI, o que corrompe acentos vindos de um .bat
+    (ç, ã, á…). Devolve o codec da consola atual, que o filho herda; recua para
+    a OEM do sistema se não houver consola.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        k32 = ctypes.windll.kernel32
+        cp = k32.GetConsoleOutputCP() or k32.GetOEMCP()
+    except Exception:
+        return None
+    if not cp:
+        return None
+    if cp == 65001:
+        return "utf-8"
+    return f"cp{cp}"
+
+
 def _console_python(exe: Path) -> Path:
     """Troca pythonw.exe pelo python.exe ao lado (se existir).
 
@@ -895,7 +918,9 @@ class AppRuntime:
             env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
         else:
             cmd = ["cmd.exe", "/c", str(app.entry)]
-            enc = None  # encoding da consola do Windows
+            # code page de saída da consola (cp850…), não a ANSI cp1252 —
+            # senão os acentos escritos por um .bat aparecem corrompidos
+            enc = _console_output_encoding()
 
         stdout, stderr, returncode, status = "", "", None, "erro"
         if exe_error:

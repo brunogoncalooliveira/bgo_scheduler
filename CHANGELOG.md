@@ -7,6 +7,25 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.11] - 2026-07-13
+
+### Corrigido
+- **Seleção de texto no dashboard deixa de se perder a cada atualização.** O
+  painel refrescava de 2 em 2 segundos reconstruindo os tiles, a lista de apps
+  e outras zonas do DOM mesmo quando nada mudava, o que desmarcava qualquer
+  texto selecionado. Estas zonas passam a reconstruir-se só quando o conteúdo
+  muda de facto; as contagens decrescentes são atualizadas no lugar, sem tocar
+  no DOM quando o texto é igual.
+- **Acentos corrompidos na saída de apps `.bat`.** O output de um ficheiro
+  `.bat` era descodificado com a code page ANSI (cp1252) em vez da code page de
+  saída da consola (a OEM, p. ex. cp850 em PT-PT), corrompendo `ç`, `ã`, `á`…
+  Passa a usar-se `GetConsoleOutputCP()`, que corresponde à consola que a app
+  herda.
+
+### Alterado
+- Etiqueta do visualizador de logs no dashboard: «Log (Grafana Loki · …)» passa
+  a «Logs (logs/&lt;app&gt;.log)».
+
 ## [1.9.10] - 2026-07-12
 
 ### Alterado
@@ -89,7 +108,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.10...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.11...HEAD
+[1.9.11]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.10...v1.9.11
 [1.9.10]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.9...v1.9.10
 [1.9.9]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.8...v1.9.9
 [1.9.8]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.7...v1.9.8
