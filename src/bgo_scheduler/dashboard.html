@@ -1069,6 +1069,20 @@ function renderRulesEditor(appName) {
 
 /* ------------- log viewer ------------- */
 
+/* Assinatura do tail do log, para "seguir novas linhas" detetar quando há
+   linhas novas. NÃO pode ser só o número de linhas: o /api/logs devolve apenas
+   as últimas N e o .log acumula entre execuções, por isso acima de N o count
+   fica preso e as linhas novas nunca apareciam. O primeiro/último timestamp e a
+   última mensagem mudam sempre que chega uma linha nova (o log só cresce), mesmo
+   com a janela no limite — e ficam iguais quando nada muda (não re-renderiza,
+   preservando a seleção de texto). */
+function logTailKey(lines) {
+  const n = lines.length;
+  if (!n) return "0";
+  const first = lines[0], last = lines[n - 1];
+  return n + "|" + (first.ts || "") + "|" + (last.ts || "") + "\u0001" + (last.msg || "");
+}
+
 async function refreshLogs(force) {
   if (!selected) return;
   const box = $("#logbox");
@@ -1076,8 +1090,9 @@ async function refreshLogs(force) {
   let data;
   try { data = await api("/api/logs?app=" + encodeURIComponent(selected) + "&lines=300"); }
   catch (e) { return; }
-  if (!force && box.dataset.app === selected && box.dataset.n === String(data.lines.length)) return;
-  box.dataset.app = selected; box.dataset.n = String(data.lines.length);
+  const key = logTailKey(data.lines);
+  if (!force && box.dataset.app === selected && box.dataset.k === key) return;
+  box.dataset.app = selected; box.dataset.k = key;
   box.replaceChildren(...data.lines.map(l =>
     el("div", null,
       el("span", { class: "t" }, (l.ts ? fmtTime(l.ts) : "") + " "),

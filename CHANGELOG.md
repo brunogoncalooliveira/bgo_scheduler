@@ -7,6 +7,16 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.13] - 2026-07-14
+
+### Corrigido
+- **«Seguir novas linhas» do log deixava de atualizar.** O visualizador de logs
+  detetava linhas novas pelo **número de linhas**, mas o `/api/logs` só devolve
+  as últimas 300 e o `.log` da app acumula entre execuções — acima de 300 o total
+  fica preso em 300, as linhas novas empurram as antigas sem mudar o total, e o
+  visualizador nunca as mostrava. Passa a usar uma assinatura do tail (timestamps
+  e última mensagem) que muda sempre que chega uma linha nova, mesmo no limite.
+
 ## [1.9.12] - 2026-07-14
 
 ### Corrigido
@@ -121,7 +131,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.12...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.13...HEAD
+[1.9.13]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.12...v1.9.13
 [1.9.12]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.11...v1.9.12
 [1.9.11]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.10...v1.9.11
 [1.9.10]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.9...v1.9.10
