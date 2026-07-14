@@ -100,6 +100,23 @@ def _console_output_encoding() -> Optional[str]:
     return f"cp{cp}"
 
 
+def _decode_console(data: bytes, fallback: str) -> str:
+    """Descodifica uma linha de saída de consola de codificação incerta.
+
+    Um único .bat pode misturar linhas em codificações diferentes: o ``echo`` do
+    cmd escreve na code page da consola (OEM, p. ex. cp850), mas um PowerShell
+    que faça ``[Console]::OutputEncoding = UTF8`` — ou um ``python -u`` — escreve
+    UTF-8. Uma codificação fixa corrompe sempre metade. Como o UTF-8 é
+    auto-validável (quase todas as sequências OEM não são UTF-8 válido), tenta-se
+    UTF-8 e só se recua para a code page da consola quando falha — decidido por
+    linha, que é a granularidade a que cada programa escreve.
+    """
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode(fallback, errors="replace")
+
+
 def _console_python(exe: Path) -> Path:
     """Troca pythonw.exe pelo python.exe ao lado (se existir).
 
@@ -851,11 +868,11 @@ class AppRuntime:
             self.queued = value
         self.registry.state_changed()
 
-    def _pump(self, stream, event, level, sink):
-        """Lê um pipe linha-a-linha, escreve no log e guarda no buffer (tail)."""
+    def _pump(self, stream, event, level, sink, fallback):
+        """Lê um pipe binário linha-a-linha, descodifica, loga e guarda (tail)."""
         try:
-            for line in stream:
-                line = line.rstrip("\r\n")
+            for raw in stream:
+                line = _decode_console(raw, fallback).rstrip("\r\n")
                 sink.append(line)
                 if line.strip():
                     level(line, extra={"app": self.appdef.name, "event": event})
@@ -913,14 +930,13 @@ class AppRuntime:
         if app.kind == "py":
             exe, exe_error = self._resolve_python()
             cmd = [str(exe), "-u", str(app.entry)] if exe else None
-            enc = "utf-8"
             # garante que o filho escreve UTF-8 no pipe (senão usa cp1252)
             env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
         else:
             cmd = ["cmd.exe", "/c", str(app.entry)]
-            # code page de saída da consola (cp850…), não a ANSI cp1252 —
-            # senão os acentos escritos por um .bat aparecem corrompidos
-            enc = _console_output_encoding()
+        # A saída é lida em binário e descodificada linha-a-linha (ver
+        # _decode_console): UTF-8 quando válido, senão a code page da consola.
+        fallback_enc = _console_output_encoding() or "utf-8"
 
         stdout, stderr, returncode, status = "", "", None, "erro"
         if exe_error:
@@ -934,7 +950,6 @@ class AppRuntime:
                 proc = subprocess.Popen(
                     cmd, cwd=str(app.dir),
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, encoding=enc, errors="replace", bufsize=1,
                     env=env, creationflags=_child_creationflags(),
                 )
             except Exception as e:
@@ -948,10 +963,12 @@ class AppRuntime:
 
             if proc is not None:
                 t_out = threading.Thread(
-                    target=self._pump, args=(proc.stdout, "stdout", self.log.info, out_lines),
+                    target=self._pump,
+                    args=(proc.stdout, "stdout", self.log.info, out_lines, fallback_enc),
                     daemon=True)
                 t_err = threading.Thread(
-                    target=self._pump, args=(proc.stderr, "stderr", self.log.error, err_lines),
+                    target=self._pump,
+                    args=(proc.stderr, "stderr", self.log.error, err_lines, fallback_enc),
                     daemon=True)
                 t_out.start()
                 t_err.start()

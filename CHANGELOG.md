@@ -7,6 +7,19 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.12] - 2026-07-14
+
+### Corrigido
+- **Acentos corrompidos quando um `.bat` mistura codificações.** O fix de 1.9.11
+  descodificava toda a saída de um `.bat` na code page da consola (cp850). Mas
+  um `.bat` que chama, p. ex., PowerShell com
+  `[Console]::OutputEncoding = UTF8` (ou `python -u`) produz um stream **misto**:
+  linhas do `echo` do cmd em cp850 e linhas do PowerShell em UTF-8. Uma
+  codificação fixa corrompia sempre metade (`SINCRONIZAÇÃO` aparecia como
+  `SINCRONIZA├ç├âO`). A saída passa a ser lida em binário e descodificada
+  **linha-a-linha**: UTF-8 quando válido (auto-validável), recuando para a code
+  page da consola só quando não é. Aplica-se a apps `.py` e `.bat`.
+
 ## [1.9.11] - 2026-07-13
 
 ### Corrigido
@@ -108,7 +121,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.11...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.12...HEAD
+[1.9.12]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.11...v1.9.12
 [1.9.11]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.10...v1.9.11
 [1.9.10]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.9...v1.9.10
 [1.9.9]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.8...v1.9.9
