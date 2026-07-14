@@ -20,13 +20,13 @@ win_only = pytest.mark.skipif(sys.platform != "win32", reason="cmd/powershell s�
 # ---------------- unidade: _decode_console (portável, determinístico) ----------------
 
 def test_utf8_line_decoded_as_utf8():
-    raw = "SINCRONIZAÇÃO alterações da stream".encode("utf-8")
+    raw = "SINCRONIZAÇÃO alterações da stream".encode()
     assert _decode_console(raw, "cp850") == "SINCRONIZAÇÃO alterações da stream"
 
 
 def test_utf8_not_mangled_as_console_cp():
     """O bug exato: UTF-8 descodificado como cp850 dava 'SINCRONIZA├ç├âO'."""
-    raw = "SINCRONIZAÇÃO".encode("utf-8")
+    raw = "SINCRONIZAÇÃO".encode()
     got = _decode_console(raw, "cp850")
     assert got == "SINCRONIZAÇÃO"
     assert "├" not in got and "�" not in got
@@ -43,7 +43,7 @@ def test_oem_line_falls_back_to_console_cp():
 def test_mixed_stream_decoded_per_line():
     """Stream misto: uma linha OEM (cmd) e outra UTF-8 (PowerShell), como no .bat real."""
     oem = "[main.bat] Configuração terminada".encode("cp850")
-    utf = "[INFO] Aceitando alterações da stream...".encode("utf-8")
+    utf = "[INFO] Aceitando alterações da stream...".encode()
     assert _decode_console(oem, "cp850") == "[main.bat] Configuração terminada"
     assert _decode_console(utf, "cp850") == "[INFO] Aceitando alterações da stream..."
 
