@@ -148,6 +148,12 @@
   td { padding: 5px 10px 5px 0; border-bottom: 1px solid var(--hairline); font-variant-numeric: tabular-nums; vertical-align: top; }
   tr.hist:hover td, tr.ov:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); cursor: pointer; }
 
+  /* histórico de execuções: só HIST_VISIBLE_ROWS linhas visíveis, scroll para
+     o resto (altura fixada via JS, em sizeHistoryBody — depende do tamanho
+     real da linha renderizada); cabeçalho fixo ao rolar */
+  #hist-body { overflow-y: auto; }
+  #hist-body thead th { position: sticky; top: 0; background: var(--surface); }
+
   /* notificações e mensagens nas tabelas */
   .msgline { display: flex; gap: 5px; align-items: baseline; }
   .msgline .ic { flex: none; font-weight: 700; }
@@ -245,6 +251,7 @@ let detailTab = "monitor"; // aba ativa do detalhe: "monitor" | "config"
 let cfgDirty = { alias: false, sched: false, sleep: false, rules: false };  // secções por gravar
 let cfgInputs = {};        // refs dos inputs de agendamento/sleep para o Guardar único
 let logFollow = true;
+const HIST_VISIBLE_ROWS = 5;   // linhas visíveis no histórico antes de precisar de scroll
 
 function configDirty() { return cfgDirty.alias || cfgDirty.sched || cfgDirty.sleep || cfgDirty.rules; }
 function resetCfgDirty() { cfgDirty = { alias: false, sched: false, sleep: false, rules: false }; }
@@ -1153,6 +1160,22 @@ function updateDetail(app) {
    inalteradas (ex.: texto copiado do stdout de uma execução mais antiga). */
 let historyRowCache = new Map();   // start-iso -> {el, key}
 
+/* Limita a altura de #hist-body a HIST_VISIBLE_ROWS linhas (thead + N × tbody
+   tr), com scroll para o resto. Medido a partir do DOM real em vez de um
+   valor de pixels fixo, para acertar independentemente do tamanho de letra
+   ou de células que quebrem para duas linhas (ex.: mensagens compridas). Com
+   HIST_VISIBLE_ROWS ou menos execuções, a altura calculada já cabe tudo e
+   não aparece scrollbar nenhuma. */
+function sizeHistoryBody(body) {
+  const thead = body.querySelector("thead");
+  const rows = body.querySelectorAll("tbody tr");
+  if (!thead || !rows.length) { body.style.maxHeight = ""; return; }
+  const visible = Math.min(rows.length, HIST_VISIBLE_ROWS);
+  let height = thead.offsetHeight;
+  for (let i = 0; i < visible; i++) height += rows[i].offsetHeight;
+  body.style.maxHeight = height + "px";
+}
+
 function buildHistoryRow(app, h) {
   return el("tr", { class: "hist", onclick: () => {
       histOpen = histOpen === h.start ? null : h.start;
@@ -1200,6 +1223,7 @@ function updateHistory(app) {
   }));
   reconcileList($("#hist-tbody"), historyRowCache, items,
     id => buildHistoryRow(app, items.find(i => i.id === id).h));
+  sizeHistoryBody(body);
 
   const open = hist.find(h => h.start === histOpen);
   const outKey = open ? open.start + "|" + (open.stdout_tail || "") + "|" + (open.stderr_tail || "") : "";

@@ -7,6 +7,16 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.17] - 2026-07-20
+
+### Adicionado
+- **Histórico de execuções com altura limitada.** A tabela "Histórico de
+  execuções" mostra agora só 5 linhas de cada vez, com scroll para o resto e
+  cabeçalho fixo ao rolar — antes crescia sem limite com apps de execução
+  frequente. A altura é medida a partir das linhas reais do DOM (não um valor
+  fixo de pixels), por isso continua certa com qualquer tamanho de letra ou
+  células que quebrem para duas linhas.
+
 ## [1.9.16] - 2026-07-20
 
 ### Adicionado
@@ -200,7 +210,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.16...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.17...HEAD
+[1.9.17]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.16...v1.9.17
 [1.9.16]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.15...v1.9.16
 [1.9.15]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.14...v1.9.15
 [1.9.14]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.13...v1.9.14
