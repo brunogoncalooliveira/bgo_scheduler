@@ -163,3 +163,10 @@ if ($expectedVersion -and $liveVersion -ne $expectedVersion) {
     throw "o dashboard esta a responder com a versao $liveVersion, mas esperava-se $expectedVersion -- ainda ha um processo antigo a servir a porta $DashboardPort."
 }
 Write-Host "tray a correr -- versao confirmada em execucao: $liveVersion" -ForegroundColor Green
+
+# -- marcador para o hook Stop (.claude/settings.json) ---------------------
+# grava quando esta verificacao terminou com sucesso; o hook compara os
+# mtimes de src\bgo_scheduler contra este ficheiro para saber se ha
+# alteracoes por verificar antes de terminar uma resposta.
+New-Item -ItemType Directory -Force -Path "$repoRoot\.claude" | Out-Null
+Get-Date -Format "o" | Set-Content "$repoRoot\.claude\last-verify.txt" -NoNewline

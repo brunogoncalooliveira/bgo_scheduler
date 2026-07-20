@@ -28,6 +28,9 @@ notification_rules.json
 # IDE / SO / ferramentas
 .vscode/
 .idea/
-.claude/
+# .claude/ fica ignorada por omissão (settings.local.json, marcadores de
+# runtime), exceto o settings.json partilhado (hooks/permissões da equipa)
+.claude/*
+!.claude/settings.json
 .DS_Store
 Thumbs.db

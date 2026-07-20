@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+            "args": ["C:/Users/asus/Desktop/bgo_scheduler/scripts/check-verify-marker.sh"],
+            "timeout": 15,
+            "statusMessage": "A confirmar se scripts/verify-reinstall-restart.ps1 já correu desde a última alteração a src/bgo_scheduler..."
+          }
+        ]
+      }
+    ]
+  }
+}
