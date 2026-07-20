@@ -103,6 +103,8 @@
   }
   .card:hover { border-color: var(--accent); }
   .card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .card.chained { border-left: 2px solid var(--accent); }
+  .chain-connector { color: var(--accent); font-weight: 700; flex: none; }
   .card .row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .card .name { font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
   .kind {
@@ -307,7 +309,12 @@ function statusInfo(app) {
   if (app.running) return { cls: "st-run", icon: "▶", label: "a executar" };
   if (app.queued) return { cls: "st-timeout", icon: "⏳", label: "em fila" };
   const last = app.last;
-  if (!last) return { cls: "st-none", icon: "○", label: app.enabled ? "sem execuções" : "desativada" };
+  if (!last) {
+    // lazy start: histórico desta app ainda não chegou do disco (arranque
+    // com muitas apps/logs) — não é o mesmo que "nunca correu"
+    if (app.history_loaded === false) return { cls: "st-none", icon: "…", label: "a carregar histórico…" };
+    return { cls: "st-none", icon: "○", label: app.enabled ? "sem execuções" : "desativada" };
+  }
   if (last.status === "ok") return { cls: app.enabled ? "st-ok" : "st-off", icon: "✓", label: app.enabled ? "ok" : "ok · desativada" };
   if (last.status === "timeout") return { cls: "st-timeout", icon: "⏱", label: "timeout" };
   return { cls: "st-err", icon: "✕", label: last.status };
@@ -601,6 +608,32 @@ function renderTiles() {
         el("small", null, mark) : null))));
 }
 
+/* Ordena as apps para a lista da esquerda de forma a que uma app encadeada
+   ("correr após") apareça logo a seguir à(s) sua(s) app(s) a montante,
+   indentada — a única forma de mostrar visualmente a dependência sem gráficos.
+   Pura (só lê name/run_after), por isso é testável fora do DOM. Devolve
+   [{ app, depth }]; apps com mais de uma app a montante ficam sob a primeira
+   encontrada (é só uma pista visual, «após X, Y» no texto continua completo). */
+function orderAppsForChainView(apps) {
+  const childrenOf = new Map();
+  for (const a of apps)
+    for (const up of (a.run_after || [])) {
+      if (!childrenOf.has(up)) childrenOf.set(up, []);
+      childrenOf.get(up).push(a);
+    }
+  const seen = new Set();
+  const ordered = [];
+  const visit = (app, depth) => {
+    if (seen.has(app.name)) return;
+    seen.add(app.name);
+    ordered.push({ app, depth });
+    for (const child of (childrenOf.get(app.name) || [])) visit(child, depth + 1);
+  };
+  for (const a of apps) if (!(a.run_after && a.run_after.length)) visit(a, 0);
+  for (const a of apps) visit(a, 0);   // sobra defensiva: run_after "órfão" nunca deixa uma app de fora
+  return ordered;
+}
+
 function renderApps() {
   const list = $("#applist");
   /* só reconstrói a lista quando muda algo estrutural (inclui a app
@@ -635,12 +668,14 @@ function renderApps() {
              " e reinicia o scheduler."])));
     return;
   }
-  for (const app of STATE.apps) {
+  for (const { app, depth } of orderAppsForChainView(STATE.apps)) {
     const card = el("div", {
-      class: "card" + (app.name === selected ? " sel" : ""),
+      class: "card" + (app.name === selected ? " sel" : "") + (depth > 0 ? " chained" : ""),
+      style: depth > 0 ? `margin-left:${depth * 18}px` : null,
       onclick: () => { selectApp(app.name); },
     },
       el("div", { class: "row1" },
+        depth > 0 ? el("span", { class: "chain-connector", title: "encadeada" }, "↳") : null,
         el("span", { class: "name" }, app.name),
         el("span", { class: "kind" }, app.kind === "py" ? "main.py" : "main.bat"),
         (app.warnings && app.warnings.length)
@@ -687,7 +722,9 @@ function runsKey(rows) {
 function renderOverview() {
   const panel = $("#detail");
   const rows = allRuns();
-  const key = runsKey(rows);
+  // lazy start: quantas apps ainda não trouxeram o histórico do disco
+  const loading = (STATE.apps || []).filter(a => a.history_loaded === false).length;
+  const key = runsKey(rows) + "|" + loading;
   if (panel.dataset.view === "overview" && panel.dataset.key === key) return;
   delete panel.dataset.app;
   panel.dataset.view = "overview";
@@ -711,6 +748,8 @@ function renderOverview() {
     el("h2", null, "Visão geral das execuções"),
     el("div", { class: "hint", style: "margin:6px 0 12px" },
       "Clica numa linha para abrir a app. As «Mensagens de sucesso / warning» definidas em cada app aparecem aqui (ℹ), tal como as notificações de erro (✕)."),
+    loading ? el("div", { class: "hint sleep-note", style: "margin:0 0 12px" },
+      "a carregar histórico de " + loading + " app(s)…") : null,
     rows.length ? table : el("div", { class: "empty" }, "Ainda sem execuções."));
 }
 
@@ -809,6 +848,14 @@ function setDetailTab(name) {
     b => b.classList.toggle("active", b.dataset.tab === name));
 }
 
+/* "correr após" tem sempre prioridade no backend (ver _compute_next_run): uma
+   app encadeada não corre por intervalo/cron mesmo que também os tenha
+   configurados. Pura, para ficar consistente nos dois sítios que precisam
+   desta decisão (o editor de agendamento e — no backend — o schedule_mode). */
+function chainActive(runAfterValue) {
+  return (runAfterValue || "").trim().length > 0;
+}
+
 function renderScheduleEditor(app) {
   const box = $("#schedbox");
   if (!box) return;
@@ -825,26 +872,41 @@ function renderScheduleEditor(app) {
     { value: app.timeout_minutes || 0, oninput: () => markCfg("sched") });
   const runAfter = Object.assign(el("input", { type: "text", style: "width:100%",
     placeholder: "vazio = por tempo; ex.: extrair, transformar", list: "apps-list" }),
-    { value: (app.run_after || []).join(", "), oninput: () => markCfg("sched") });
+    { value: (app.run_after || []).join(", "), oninput: () => { markCfg("sched"); syncChain(); } });
   const pyExe = Object.assign(el("input", { type: "text", style: "width:100%",
     placeholder: "vazio = interpretador do scheduler; ex.: .venv\\Scripts\\python.exe" }),
     { value: app.python_exe || "", oninput: () => markCfg("sched") });
   const datalist = el("datalist", { id: "apps-list" }, ...others.map(n => el("option", { value: n })));
   const intervalRow = el("div", { class: "field" }, el("label", null, "intervalo"), interval, el("span", null, "min"));
   const cronRow = el("div", { class: "field" }, el("label", null, "cron"), cron);
+  const modeRow = el("div", { class: "field" }, el("label", null, "modo"), mode);
+  const byTimeBox = el("div", null, modeRow, intervalRow, cronRow);
+  const chainHint = el("div", { class: "hint sleep-note" },
+    "agendamento por tempo desativado — a app está encadeada («correr após»)");
   const sync = () => {
     intervalRow.style.display = mode.value === "interval" ? "" : "none";
     cronRow.style.display = mode.value === "cron" ? "" : "none";
   };
+  /* quando "correr após" tem valor, intervalo/cron ficam visualmente
+     desativados e não editáveis: o backend ignora-os enquanto a app estiver
+     encadeada (chain vence sempre), e o editor deve deixar isso claro em vez
+     de parecer que ambos se aplicam ao mesmo tempo. */
+  const syncChain = () => {
+    const active = chainActive(runAfter.value);
+    mode.disabled = active; interval.disabled = active; cron.disabled = active;
+    byTimeBox.style.opacity = active ? "0.45" : "";
+    chainHint.style.display = active ? "" : "none";
+  };
   mode.addEventListener("change", () => { sync(); markCfg("sched"); });
   sync();
+  syncChain();
   cfgInputs.schedule = { mode, interval, cron, timeout, runAfter, pyExe };
   box.replaceChildren(el("div", { class: "sleepbox" }, datalist,
-    el("div", { class: "field" }, el("label", null, "modo"), mode),
-    intervalRow, cronRow,
+    byTimeBox,
     el("div", { class: "field" }, el("label", null, "timeout"), timeout, el("span", null, "min (0 = sem limite)")),
     el("div", { class: "field", style: "flex-wrap:wrap" },
       el("label", null, "correr após"), runAfter),
+    chainHint,
     el("div", { class: "hint" },
       "«correr após» encadeia: a app corre quando a(s) app(s) indicada(s) terminam com sucesso, em vez de por tempo."),
     el("div", { class: "field", style: "flex-wrap:wrap" },
@@ -960,7 +1022,7 @@ function updateDetail(app) {
     }
   }
   const hb = $("#histbox");
-  const key = runsKey(app.history || []) + "|" + histOpen;
+  const key = runsKey(app.history || []) + "|" + histOpen + "|" + app.history_loaded;
   if (hb.dataset.key !== key) {
     hb.dataset.key = key;
     hb.replaceChildren(renderHistory(app));
@@ -969,7 +1031,10 @@ function updateDetail(app) {
 
 function renderHistory(app) {
   const hist = (app.history || []).slice().reverse();
-  if (!hist.length) return el("div", { class: "hint" }, "Ainda sem execuções.");
+  if (!hist.length) {
+    return el("div", { class: "hint" },
+      app.history_loaded === false ? "a carregar histórico…" : "Ainda sem execuções.");
+  }
   const rows = hist.map(h =>
     el("tr", { class: "hist", onclick: () => {
         histOpen = histOpen === h.start ? null : h.start;

@@ -1,5 +1,6 @@
 """Fixtures partilhadas da suite do bgo_scheduler."""
 
+import shutil
 import socket
 import sys
 import time
@@ -14,6 +15,27 @@ if str(SRC) not in sys.path:
 from bgo_scheduler import scheduler_core  # noqa: E402
 from bgo_scheduler.config import load_config  # noqa: E402
 from bgo_scheduler.scheduler_core import AppDef, AppRuntime, Registry, RulesStore  # noqa: E402
+
+# -- testes do JS puro do dashboard (extraído + exercitado com Node) --------
+
+DASHBOARD_HTML = Path(__file__).resolve().parents[1] / "src" / "bgo_scheduler" / "dashboard.html"
+NODE_BIN = shutil.which("node")
+needs_node = pytest.mark.skipif(NODE_BIN is None, reason="node não disponível para testar o JS do dashboard")
+
+
+def extract_js_function(name: str, source: str) -> str:
+    """Extrai o texto de `function <name>(...) { ... }` por contagem de chavetas."""
+    start = source.index("function " + name)
+    open_brace = source.index("{", start)
+    depth = 0
+    for i in range(open_brace, len(source)):
+        if source[i] == "{":
+            depth += 1
+        elif source[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start:i + 1]
+    raise AssertionError(f"função {name} não fecha em dashboard.html")
 
 
 @pytest.fixture(autouse=True)

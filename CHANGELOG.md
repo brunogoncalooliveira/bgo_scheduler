@@ -7,6 +7,32 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.14] - 2026-07-14
+
+### Corrigido
+- **"correr após" já não parecia coexistir com intervalo/cron.** run_after já
+  tinha sempre prioridade na execução real (`_compute_next_run`), mas isso não
+  era visível: (1) o `schedule_mode` reportado ao dashboard dava prioridade ao
+  cron sobre o encadeamento quando uma app tinha os dois configurados, mostrando
+  "cron ..." para uma app que na prática só corria encadeada; (2) o editor de
+  Configuração deixava "modo"/intervalo/cron editáveis ao mesmo tempo que
+  "correr após", sugerindo que ambos se aplicavam. Agora o modo reportado dá
+  sempre prioridade a "chain", e o editor desativa visualmente intervalo/cron
+  (com uma nota) enquanto "correr após" tiver um valor.
+
+### Adicionado
+- **Dependência visual entre apps encadeadas.** No painel esquerdo, uma app com
+  "correr após" aparece agora logo a seguir à(s) app(s) de que depende,
+  indentada e com um conector (↳) — incluindo cadeias com vários níveis — em
+  vez de aparecer misturada na lista sem indicação visual da relação.
+- **Lazy start do histórico.** Com muitas apps/muitos logs, o arranque
+  demorava a abrir o dashboard: `Registry.start()` lia o `.jsonl` de histórico
+  de cada app de forma síncrona, dentro do mesmo lock que `/api/state` usa.
+  As apps arrancam agora sem histórico e cada uma carrega o seu em paralelo,
+  em segundo plano; o dashboard mostra "a carregar histórico…" nesse intervalo
+  e preenche automaticamente quando os dados chegam (sem a UI ficar bloqueada
+  a arrancar).
+
 ## [1.9.13] - 2026-07-14
 
 ### Corrigido
@@ -131,7 +157,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.13...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.14...HEAD
+[1.9.14]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.13...v1.9.14
 [1.9.13]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.12...v1.9.13
 [1.9.12]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.11...v1.9.12
 [1.9.11]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.10...v1.9.11

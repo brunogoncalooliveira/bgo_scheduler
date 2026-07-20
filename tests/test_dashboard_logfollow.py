@@ -10,38 +10,16 @@ O teste extrai a função pura logTailKey do dashboard.html e exercita-a com Nod
 """
 
 import re
-import shutil
 import subprocess
-from pathlib import Path
 
-import pytest
-
-DASHBOARD = Path(__file__).resolve().parents[1] / "src" / "bgo_scheduler" / "dashboard.html"
-
-_node = shutil.which("node")
-needs_node = pytest.mark.skipif(_node is None, reason="node não disponível para testar o JS do dashboard")
-
-
-def _extract_function(name: str, source: str) -> str:
-    """Extrai o texto de `function <name>(...) { ... }` por contagem de chavetas."""
-    start = source.index("function " + name)
-    open_brace = source.index("{", start)
-    depth = 0
-    for i in range(open_brace, len(source)):
-        if source[i] == "{":
-            depth += 1
-        elif source[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return source[start:i + 1]
-    raise AssertionError(f"função {name} não fecha em dashboard.html")
+from conftest import DASHBOARD_HTML, NODE_BIN, extract_js_function, needs_node
 
 
 @needs_node
 def test_log_follow_signature_detects_new_lines(tmp_path):
-    src = DASHBOARD.read_text(encoding="utf-8")
+    src = DASHBOARD_HTML.read_text(encoding="utf-8")
     assert "function logTailKey" in src, "dashboard.html devia definir logTailKey"
-    fn = _extract_function("logTailKey", src)
+    fn = extract_js_function("logTailKey", src)
     # a chave não pode reduzir-se ao número de linhas (o bug original)
     assert not re.search(r"return\s+String\(\s*lines\.length\s*\)", fn), \
         "logTailKey não pode usar só lines.length como chave"
@@ -76,6 +54,6 @@ console.log("ok");
 """
     script = tmp_path / "logfollow.mjs"
     script.write_text(harness, encoding="utf-8")
-    r = subprocess.run([_node, str(script)], capture_output=True, text=True, timeout=30)
+    r = subprocess.run([NODE_BIN, str(script)], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, "node falhou:\n" + r.stdout + r.stderr
     assert "ok" in r.stdout

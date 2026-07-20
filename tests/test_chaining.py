@@ -79,6 +79,23 @@ def test_self_reference_ignored(make_app, make_registry):
     assert any("própria app" in w for w in rt.schedule_warnings)
 
 
+def test_chain_wins_over_cron_in_schedule_mode(make_app, make_registry):
+    """run_after tem sempre prioridade sobre cron/intervalo (_compute_next_run
+    já o fazia); o schedule_mode reportado ao dashboard tem de refletir o
+    mesmo, senão o dashboard mostrava "cron ..." para uma app que na prática
+    só corre encadeada."""
+    reg = make_registry()
+    make_app("up2", "print(1)")
+    make_app("both", "print(1)",
+             schedule="[Schedule]\ncron = 0 9 * * 1-5\nrun_after = up2\n")
+    reg.start()
+    rt = reg.apps["both"]
+    assert rt.cron_spec is not None
+    assert rt.run_after == ["up2"]
+    assert rt.snapshot()["schedule_mode"] == "chain"
+    assert rt._compute_next_run() is None
+
+
 def test_cycle_is_broken(make_app, make_registry):
     reg = make_registry()
     make_app("x", "print(1)", schedule="[Schedule]\nrun_after = y\n")

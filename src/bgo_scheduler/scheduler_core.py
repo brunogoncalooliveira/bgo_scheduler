@@ -17,8 +17,10 @@ Cada sub-pasta das raízes de apps com um main.py (ou, em alternativa, main.bat)
     ; sleep hours (todos editáveis no dashboard):
     ; ignore_sleep_hours = true      -> app crítica, ignora a pausa transversal
     ; sleep_hours = 23:00-06:00      -> horário de pausa próprio da app
-    ; encadeamento: corre quando uma app a montante termina com sucesso
-    ; (em vez de por intervalo/cron). Vários nomes separados por vírgula:
+    ; encadeamento: corre quando uma app a montante termina com sucesso, em
+    ; vez de por intervalo/cron — run_after tem sempre prioridade sobre
+    ; interval_minutes/cron (que ficam gravados mas não se aplicam enquanto
+    ; run_after não for removido). Vários nomes separados por vírgula:
     ; run_after = extrair, transformar
 """
 
@@ -33,6 +35,7 @@ import sys
 import threading
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -543,7 +546,7 @@ class RulesStore:
 class AppRuntime:
     """Estado + thread de agendamento de uma app."""
 
-    def __init__(self, appdef: AppDef, registry):
+    def __init__(self, appdef: AppDef, registry, lazy_history: bool = False):
         self.appdef = appdef
         self.registry = registry
         self.log = get_app_logger(appdef.name, registry.config.logs_dir)
@@ -556,6 +559,7 @@ class AppRuntime:
         self.last = None                     # resumo da última execução
         self.next_run = None                 # epoch da próxima execução agendada
         self.history = deque(maxlen=HISTORY_SIZE)
+        self.history_loaded = not lazy_history  # ver _load_history / Registry.start (lazy start)
         self.thread = None
         self.cron_spec = None
         self.schedule_warnings = []
@@ -564,7 +568,8 @@ class AppRuntime:
         cfg, warns = read_schedule(appdef.dir)
         self._apply_schedule(cfg, warns)
         self._history_path = Path(registry.config.history_dir) / f"{appdef.name}.jsonl"
-        self._load_history()
+        if not lazy_history:
+            self._load_history()
 
     # -- schedule -----------------------------------------------------------
 
@@ -622,19 +627,31 @@ class AppRuntime:
     # -- histórico persistente ------------------------------------------------
 
     def _load_history(self):
-        if not self._history_path.exists():
-            return
-        try:
-            lines = self._history_path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            return
-        for line in lines[-HISTORY_SIZE:]:
+        """Lê o .jsonl do disco (pode ser chamado em segundo plano — lazy start).
+
+        Funde com o que já estiver em memória em vez de substituir: numa app
+        lazy a thread de agendamento já arrancou e pode ter corrido (e feito
+        append) antes desta leitura terminar. Como o disco só tem o PASSADO,
+        fica sempre bem colocado antes do que já estava em memória — não há
+        corrida a resolver, só ordem cronológica a preservar.
+        """
+        loaded = []
+        if self._history_path.exists():
             try:
-                self.history.append(json.loads(line))
-            except ValueError:
-                continue
-        if self.history:
-            self.last = self.history[-1]
+                lines = self._history_path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                lines = []
+            for line in lines[-HISTORY_SIZE:]:
+                try:
+                    loaded.append(json.loads(line))
+                except ValueError:
+                    continue
+        with self._state_lock:
+            if loaded:
+                merged = (loaded + list(self.history))[-HISTORY_SIZE:]
+                self.history = deque(merged, maxlen=HISTORY_SIZE)
+                self.last = self.history[-1]
+            self.history_loaded = True
 
     def _append_history(self, entry: dict):
         try:
@@ -692,7 +709,10 @@ class AppRuntime:
                 "interval_minutes": self.interval_minutes,
                 "timeout_minutes": self.timeout_minutes,
                 "cron": self.cron_expr if self.cron_spec else None,
-                "schedule_mode": "cron" if self.cron_spec else ("chain" if self.run_after else "interval"),
+                # run_after tem sempre prioridade (ver _compute_next_run): uma app
+                # encadeada não corre por cron/intervalo mesmo que também os tenha
+                # configurados, por isso "chain" tem de vencer aqui também.
+                "schedule_mode": "chain" if self.run_after else ("cron" if self.cron_spec else "interval"),
                 "run_after": list(self.run_after),
                 "downstream": list(self.registry._downstream.get(self.appdef.name, [])),
                 "python_exe": self.python_exe,
@@ -713,6 +733,7 @@ class AppRuntime:
                 ),
                 "last": copy.deepcopy(self.last),
                 "history": [copy.deepcopy(h) for h in list(self.history)[-25:]],
+                "history_loaded": self.history_loaded,
             }
 
     # -- loop de agendamento ----------------------------------------------
@@ -1081,12 +1102,19 @@ class Registry:
                 f"App ignorada por nome duplicado: {dup}",
                 extra={"app": "scheduler", "event": "duplicate_app"},
             )
+        # lazy start: construir cada AppRuntime já lia o .jsonl de histórico do
+        # disco (até ~2 MB) de forma síncrona, tudo dentro deste lock — com
+        # muitas apps/logs isso atrasava visivelmente a entrada no dashboard
+        # (o /api/state fica bloqueado neste mesmo lock). As apps arrancam sem
+        # histórico (fica a "a carregar…" no dashboard) e cada uma carrega o
+        # seu em segundo plano logo a seguir, em paralelo.
         with self._apps_lock:
             for appdef in defs:
-                self.apps[appdef.name] = AppRuntime(appdef, self)
+                self.apps[appdef.name] = AppRuntime(appdef, self, lazy_history=True)
             self._wire_dependencies()          # valida run_after e monta o grafo
             for i, rt in enumerate(self.apps.values()):
                 rt.start(i)
+        self._load_history_async(list(self.apps.values()))
         self.log.info(
             f"Scheduler iniciado com {len(defs)} app(s): "
             + ", ".join(f"{a.name} ({a.kind})" for a in defs),
@@ -1094,6 +1122,25 @@ class Registry:
                    "data": {"apps_roots": [str(r) for r in self.config.apps_roots]}},
         )
         return defs
+
+    def _load_history_async(self, runtimes):
+        """Carrega o histórico de cada app em segundo plano (lazy start).
+
+        Corre num pool pequeno de threads: com muitas apps, ler os .jsonl em
+        paralelo é bem mais rápido do que sequencialmente, e não bloqueia o
+        arranque nem o dashboard. Cada AppRuntime._load_history() fica seguro
+        mesmo que a app já tenha corrido entretanto (funde com o que já está
+        em memória — ver o método).
+        """
+        if not runtimes:
+            return
+
+        def _worker():
+            with ThreadPoolExecutor(max_workers=min(8, len(runtimes))) as pool:
+                list(pool.map(lambda rt: rt._load_history(), runtimes))
+            self.state_changed()   # dashboard/tray refletem o histórico completo
+
+        threading.Thread(target=_worker, daemon=True, name="bgo-history-loader").start()
 
     def _wire_dependencies(self):
         """Valida run_after de todas as apps e (re)constrói o grafo de dependências.
