@@ -13,6 +13,7 @@ Endpoints:
     POST /api/app_sleep?app=X-> {"mode": inherit|ignore|custom, "start", "end"} sleep hours da app
     POST /api/app_schedule?app=X -> {"mode": interval|cron, "interval_minutes", "cron",
                                      "timeout_minutes", "run_after", "python_exe"} agendamento da app
+    POST /api/app_alias?app=X -> {"alias", "description"} nome amigável e descrição da app
     POST /api/settings       -> {"host","port","open_on_start","max_parallel","links"} definições globais
 """
 
@@ -121,6 +122,8 @@ def make_handler(config, registry, rules):
                 self._api_app_sleep(qs)
             elif path == "/api/app_schedule":
                 self._api_app_schedule(qs)
+            elif path == "/api/app_alias":
+                self._api_app_alias(qs)
             elif path == "/api/settings":
                 self._api_settings()
             else:
@@ -156,6 +159,18 @@ def make_handler(config, registry, rules):
                 timeout_minutes=body.get("timeout_minutes"),
                 run_after=str(body.get("run_after", "")),
                 python_exe=str(body.get("python_exe", "")))
+            status = 200 if ok else (404 if "desconhecida" in msg else 400)
+            self._send_json({"ok": ok, "msg": msg}, status)
+
+        def _api_app_alias(self, qs):
+            app = (qs.get("app") or [""])[0]
+            try:
+                body = self._read_body_json()
+            except (ValueError, AttributeError) as e:
+                self._send_json({"ok": False, "msg": f"Pedido inválido: {e}"}, 400)
+                return
+            ok, msg = registry.set_app_alias(
+                app, str(body.get("alias", "")), str(body.get("description", "")))
             status = 200 if ok else (404 if "desconhecida" in msg else 400)
             self._send_json({"ok": ok, "msg": msg}, status)
 

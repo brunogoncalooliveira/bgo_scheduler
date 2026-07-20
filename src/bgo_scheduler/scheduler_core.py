@@ -22,6 +22,11 @@ Cada sub-pasta das raízes de apps com um main.py (ou, em alternativa, main.bat)
     ; interval_minutes/cron (que ficam gravados mas não se aplicam enquanto
     ; run_after não for removido). Vários nomes separados por vírgula:
     ; run_after = extrair, transformar
+    ; opcional: nome amigável e descrição (só identificação — o nome da
+    ; pasta continua a ser a chave usada internamente e nos outros campos
+    ; acima, ex. run_after); se definido, alias é o que aparece no dashboard
+    ; alias = Extração diária
+    ; description = Lê o SharePoint e grava em C:\\dados\\extrato.csv
 """
 
 import configparser
@@ -188,6 +193,8 @@ class ScheduleCfg:
     ignore_sleep_hours: bool = False
     sleep_hours: Optional[str] = None      # janela própria "HH:MM-HH:MM" (opcional)
     run_after: Optional[str] = None        # nomes de apps a montante (encadeamento)
+    alias: Optional[str] = None            # nome amigável (opcional); nome da pasta continua a ser a chave
+    description: Optional[str] = None      # descrição livre (opcional)
 
 
 def discover_apps(roots: list, exclude: set):
@@ -252,6 +259,8 @@ def read_schedule(app_dir: Path):
         cfg.python_exe = sec.get("python_exe", fallback="").strip() or None
         cfg.sleep_hours = sec.get("sleep_hours", fallback="").strip() or None
         cfg.run_after = sec.get("run_after", fallback="").strip() or None
+        cfg.alias = sec.get("alias", fallback="").strip() or None
+        cfg.description = sec.get("description", fallback="").strip() or None
         try:
             cfg.ignore_sleep_hours = sec.getboolean("ignore_sleep_hours", fallback=False)
         except ValueError:
@@ -580,6 +589,8 @@ class AppRuntime:
         self.cron_expr = cfg.cron
         self.python_exe = cfg.python_exe
         self.ignore_sleep_hours = cfg.ignore_sleep_hours
+        self.alias = cfg.alias
+        self.description = cfg.description
         self.cron_spec = None
         warns = list(base_warnings or [])
         # janela de sleep hours própria da app (opcional)
@@ -703,6 +714,8 @@ class AppRuntime:
         with self._state_lock:
             return {
                 "name": self.appdef.name,
+                "alias": self.alias,
+                "description": self.description,
                 "kind": self.appdef.kind,
                 "dir": str(self.appdef.dir),
                 "enabled": self.enabled,
@@ -1431,6 +1444,35 @@ class Registry:
         )
         self.state_changed()
         return True, "Sleep hours da app guardadas."
+
+    def set_app_alias(self, name: str, alias: str = "", description: str = ""):
+        """Define o nome amigável e a descrição de uma app (só identificação).
+
+        Grava no schedule.ini e aplica já. O nome da pasta (name) continua a
+        ser a chave usada internamente — alias é apenas o que é apresentado.
+        Devolve (ok, msg).
+        """
+        rt = self._get(name)
+        if not rt:
+            return False, f"App '{name}' desconhecida."
+        # o schedule.ini é uma linha por chave: colapsa quebras de linha para
+        # não corromper o ficheiro (set_ini_values não suporta valores multi-linha)
+        clean_alias = " ".join((alias or "").split()) or None
+        clean_desc = " ".join((description or "").split()) or None
+        values = {"alias": clean_alias, "description": clean_desc}
+        try:
+            set_ini_values(rt.appdef.dir / "schedule.ini", "Schedule", values)
+        except OSError as e:
+            return False, f"Não foi possível gravar o schedule.ini: {e}"
+        self._refresh_and_wire(rt)
+        self.log.info(
+            f"Identificação de {name} atualizada"
+            + (f" (alias: '{clean_alias}')" if clean_alias else " (alias removido)"),
+            extra={"app": "scheduler", "event": "app_alias_update",
+                   "data": {"target": name}},
+        )
+        self.state_changed()
+        return True, "Nome e descrição guardados."
 
     def _refresh_and_wire(self, rt: "AppRuntime"):
         rt.refresh_def(rt.appdef)

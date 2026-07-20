@@ -81,7 +81,7 @@
   .sleepbox { border: 1px solid var(--hairline); border-radius: 8px; padding: 10px 12px; margin-top: 4px; }
   .sleepbox .field { margin: 6px 0; }
 
-  main { max-width: 1440px; margin: 0 auto; padding: 16px 20px 48px; }
+  main { margin: 0 auto; padding: 16px 20px 48px; }
 
   /* stat tiles */
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -104,6 +104,8 @@
   .card:hover { border-color: var(--accent); }
   .card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .card.chained { border-left: 2px solid var(--accent); }
+  .card.disabled { opacity: .55; }
+  .card.disabled:hover { opacity: .8; }
   .chain-connector { color: var(--accent); font-weight: 700; flex: none; }
   .card .row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .card .name { font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
@@ -240,12 +242,12 @@ let RULES = null;          // último /api/rules
 let selected = new URLSearchParams(location.search).get("app") || null;
 let histOpen = null;       // "start" do item de histórico expandido
 let detailTab = "monitor"; // aba ativa do detalhe: "monitor" | "config"
-let cfgDirty = { sched: false, sleep: false, rules: false };  // secções por gravar
+let cfgDirty = { alias: false, sched: false, sleep: false, rules: false };  // secções por gravar
 let cfgInputs = {};        // refs dos inputs de agendamento/sleep para o Guardar único
 let logFollow = true;
 
-function configDirty() { return cfgDirty.sched || cfgDirty.sleep || cfgDirty.rules; }
-function resetCfgDirty() { cfgDirty = { sched: false, sleep: false, rules: false }; }
+function configDirty() { return cfgDirty.alias || cfgDirty.sched || cfgDirty.sleep || cfgDirty.rules; }
+function resetCfgDirty() { cfgDirty = { alias: false, sched: false, sleep: false, rules: false }; }
 function updateCfgDirtyFlag() {
   const f = $("#cfgdirty");
   if (f) f.textContent = configDirty() ? "alterações por gravar" : "";
@@ -660,9 +662,16 @@ function reconcileList(container, cache, items, build) {
   while (container.children.length > order.length) container.lastChild.remove();
 }
 
+/* nome a mostrar ao utilizador: o alias, se definido, senão o nome técnico
+   (nome da pasta) — usado em todo o lado onde uma app é apresentada; o nome
+   técnico continua a ser a chave usada internamente (selectApp, API, URL). */
+function displayName(app) {
+  return (app.alias && app.alias.trim()) || app.name;
+}
+
 function appCardKey(app, depth) {
   const s = statusInfo(app);
-  return JSON.stringify([app.kind, app.enabled, (app.warnings || []).join(""),
+  return JSON.stringify([app.kind, app.enabled, app.alias || "", (app.warnings || []).join(""),
     s.cls, s.icon, s.label, app.last ? app.last.end : null,
     app.sleeping, app.schedule_mode, app.next_run || "",
     app.cron || "", app.interval_minutes, (app.run_after || []).join(","),
@@ -670,14 +679,16 @@ function appCardKey(app, depth) {
 }
 
 function buildAppCard(app, depth) {
+  const alias = app.alias && app.alias.trim();
   return el("div", {
-    class: "card" + (app.name === selected ? " sel" : "") + (depth > 0 ? " chained" : ""),
+    class: "card" + (app.name === selected ? " sel" : "") + (depth > 0 ? " chained" : "")
+      + (!app.enabled ? " disabled" : ""),
     style: depth > 0 ? `margin-left:${depth * 18}px` : null,
     onclick: () => { selectApp(app.name); },
   },
     el("div", { class: "row1" },
       depth > 0 ? el("span", { class: "chain-connector", title: "encadeada" }, "↳") : null,
-      el("span", { class: "name" }, app.name),
+      el("span", { class: "name", title: alias ? "pasta: " + app.name : null }, displayName(app)),
       el("span", { class: "kind" }, app.kind === "py" ? "main.py" : "main.bat"),
       (app.warnings && app.warnings.length)
         ? el("span", { class: "warn-tag", title: app.warnings.join("\n") }, "⚠")
@@ -691,6 +702,13 @@ function buildAppCard(app, depth) {
         : app.schedule_mode === "chain"
         ? el("span", null, "encadeada")
         : el("span", { "data-next": app.next_run || "" }, app.enabled ? "próxima: " + countdown(app.next_run) : "")));
+}
+
+/* apps desativadas vão para o fim da lista da esquerda. sort é estável
+   (garantido desde ES2019), por isso preserva a ordem por dependência
+   ("correr após") dentro de cada grupo — só reordena ativas vs. inativas. */
+function sortDisabledLast(items) {
+  return items.slice().sort((a, b) => Number(!a.app.enabled) - Number(!b.app.enabled));
 }
 
 let appCardCache = new Map();   // nome -> {el, key} — ver reconcileList
@@ -712,7 +730,7 @@ function renderApps() {
              " e reinicia o scheduler."])));
     return;
   }
-  const items = orderAppsForChainView(STATE.apps)
+  const items = sortDisabledLast(orderAppsForChainView(STATE.apps))
     .map(({ app, depth }) => ({ id: app.name, key: appCardKey(app, depth), app, depth }));
   reconcileList(list, appCardCache, items,
     id => { const it = items.find(i => i.id === id); return buildAppCard(it.app, it.depth); });
@@ -732,14 +750,14 @@ function allRuns() {
   const rows = [];
   for (const app of (STATE.apps || []))
     for (const h of (app.history || []))
-      rows.push(Object.assign({ app: app.name }, h));
+      rows.push(Object.assign({ app: app.name, appAlias: app.alias }, h));
   rows.sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")));
   return rows.slice(0, 50);
 }
 
 function buildOverviewRow(h) {
   return el("tr", { class: "ov", onclick: () => selectApp(h.app) },
-    el("td", null, h.app),
+    el("td", { title: h.appAlias ? "pasta: " + h.app : null }, h.appAlias || h.app),
     el("td", null, fmtTime(h.start)),
     el("td", null, fmtHour(h.end)),
     el("td", null, h.returncode === null || h.returncode === undefined ? "—" : String(h.returncode)),
@@ -800,7 +818,7 @@ function updateOverview() {
   }
   const items = rows.map(h => ({
     id: h.app + "|" + h.start,
-    key: JSON.stringify([h.end, h.status, h.returncode,
+    key: JSON.stringify([h.end, h.status, h.returncode, h.appAlias,
       (h.notified || []).length, (h.messages || []).length]),
     h,
   }));
@@ -852,12 +870,15 @@ function renderDetail(app) {
     panel.replaceChildren(
       el("h2", null,
         el("button", { class: "back", onclick: clearSelection, title: "Visão geral" }, "←"),
-        app.name, el("span", { class: "kind" }, app.kind === "py" ? "main.py" : "main.bat"),
+        el("span", { id: "dname" }, displayName(app)),
+        el("span", { class: "kind", id: "dfolder" }, app.name),
+        el("span", { class: "kind" }, app.kind === "py" ? "main.py" : "main.bat"),
         el("span", { id: "dstatus" }),
         el("div", { class: "actions" },
           el("label", { class: "sw" }, toggle, "agendamento"),
           el("button", { class: "primary", onclick: () => runNow(app.name) }, "Executar agora"))),
       el("div", { class: "hint", id: "dhint", style: "margin-top:6px" }),
+      el("div", { class: "hint", id: "ddesc", style: "margin-top:2px;display:none" }),
       el("div", { id: "dwarn" }),
       el("div", { class: "tabs" }, tabBtn("monitor", "Monitorização"), tabBtn("config", "Configuração")),
 
@@ -883,6 +904,8 @@ function renderDetail(app) {
           el("button", { class: "primary", onclick: () => saveConfig(app) }, "Guardar configuração"),
           el("button", { onclick: () => resetConfig(app) }, "Repor"),
           el("span", { class: "dirty-flag", id: "cfgdirty" }, "")),
+        el("div", { class: "cfg-section-title" }, "Identificação"),
+        el("div", { id: "aliasbox" }),
         el("div", { class: "cfg-section-title" }, "Agendamento"),
         el("div", { id: "schedbox" }),
         el("div", { class: "cfg-section-title" }, "Sleep hours desta app"),
@@ -890,6 +913,7 @@ function renderDetail(app) {
         el("div", { id: "rulesbox" })),
     );
     renderRulesEditor(app.name);
+    renderAliasEditor(app);
     renderScheduleEditor(app);
     renderSleepEditor(app);
     setDetailTab(detailTab);
@@ -907,6 +931,26 @@ function setDetailTab(name) {
     b => b.classList.toggle("active", b.dataset.tab === name));
 }
 
+function renderAliasEditor(app) {
+  const box = $("#aliasbox");
+  if (!box) return;
+  const alias = Object.assign(el("input", { type: "text", style: "width:100%",
+    placeholder: "vazio = mostra o nome da pasta (" + app.name + ")" }),
+    { value: app.alias || "", oninput: () => markCfg("alias") });
+  const description = Object.assign(el("textarea", { rows: "2",
+    style: "width:100%; font:inherit; background:var(--page); color:var(--ink); border:1px solid var(--hairline); border-radius:6px; padding:5px 8px; resize:vertical",
+    placeholder: "opcional — o que esta app faz" }),
+    { value: app.description || "", oninput: () => markCfg("alias") });
+  cfgInputs.alias = { alias, description };
+  box.replaceChildren(el("div", { class: "sleepbox" },
+    el("div", { class: "field", style: "flex-wrap:wrap" },
+      el("label", null, "nome"), alias),
+    el("div", { class: "field", style: "flex-wrap:wrap; align-items:flex-start" },
+      el("label", null, "descrição"), description),
+    el("div", { class: "hint" },
+      "O nome (alias) substitui « " + app.name + " » no dashboard; a pasta continua a ser usada em « correr após » e nos ficheiros.")));
+}
+
 /* "correr após" tem sempre prioridade no backend (ver _compute_next_run): uma
    app encadeada não corre por intervalo/cron mesmo que também os tenha
    configurados. Pura, para ficar consistente nos dois sítios que precisam
@@ -918,7 +962,7 @@ function chainActive(runAfterValue) {
 function renderScheduleEditor(app) {
   const box = $("#schedbox");
   if (!box) return;
-  const others = (STATE.apps || []).map(a => a.name).filter(n => n !== app.name);
+  const others = (STATE.apps || []).filter(a => a.name !== app.name);
   const mode = el("select", null,
     el("option", { value: "interval" }, "Intervalo (minutos)"),
     el("option", { value: "cron" }, "Cron (horário)"));
@@ -935,7 +979,8 @@ function renderScheduleEditor(app) {
   const pyExe = Object.assign(el("input", { type: "text", style: "width:100%",
     placeholder: "vazio = interpretador do scheduler; ex.: .venv\\Scripts\\python.exe" }),
     { value: app.python_exe || "", oninput: () => markCfg("sched") });
-  const datalist = el("datalist", { id: "apps-list" }, ...others.map(n => el("option", { value: n })));
+  const datalist = el("datalist", { id: "apps-list" },
+    ...others.map(a => el("option", { value: a.name }, displayName(a))));
   const intervalRow = el("div", { class: "field" }, el("label", null, "intervalo"), interval, el("span", null, "min"));
   const cronRow = el("div", { class: "field" }, el("label", null, "cron"), cron);
   const modeRow = el("div", { class: "field" }, el("label", null, "modo"), mode);
@@ -1002,6 +1047,15 @@ function renderSleepEditor(app) {
 
 async function saveConfig(app) {
   const done = [], errors = [];
+  if (cfgDirty.alias && cfgInputs.alias) {
+    const s = cfgInputs.alias;
+    try {
+      await api("/api/app_alias?app=" + encodeURIComponent(app.name), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias: s.alias.value, description: s.description.value }) });
+      cfgDirty.alias = false; done.push("identificação");
+    } catch (e) { errors.push("identificação (" + e.message + ")"); }
+  }
   if (cfgDirty.sched && cfgInputs.schedule) {
     const s = cfgInputs.schedule;
     try {
@@ -1048,6 +1102,7 @@ async function resetConfig(app) {
   resetCfgDirty();
   await loadRules();
   const cur = (STATE && STATE.apps.find(a => a.name === app.name)) || app;
+  renderAliasEditor(cur);
   renderScheduleEditor(cur);
   renderSleepEditor(cur);
   renderRulesEditor(cur.name);
@@ -1055,6 +1110,15 @@ async function resetConfig(app) {
 }
 
 function updateDetail(app) {
+  setText($("#dname"), displayName(app));
+  const folder = $("#dfolder");
+  if (folder) folder.style.display = (app.alias && app.alias.trim()) ? "" : "none";
+  const desc = $("#ddesc");
+  if (desc) {
+    const d = (app.description || "").trim();
+    setText(desc, d);
+    desc.style.display = d ? "" : "none";
+  }
   const ds = $("#dstatus");
   const si = statusInfo(app);
   const sKey = si.cls + "|" + si.icon + "|" + si.label;

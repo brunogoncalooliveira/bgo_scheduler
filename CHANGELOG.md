@@ -7,6 +7,23 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.16] - 2026-07-20
+
+### Adicionado
+- **Nome amigável (alias) e descrição por app.** Editáveis na aba Configuração
+  («Identificação»), gravados no `schedule.ini` (`alias`, `description`).
+  Quando definido, o alias substitui o nome da pasta no painel esquerdo e no
+  cabeçalho do detalhe (a pasta continua visível como badge, e continua a ser
+  a chave usada em `run_after` e na API). A descrição aparece como sub-título
+  no painel de detalhe. A sugestão de nomes em «correr após» mostra o alias.
+- **Apps desativadas aparecem sempre no fim da lista**, com o card esbatido
+  (menor opacidade) para se distinguirem à primeira vista das ativas.
+
+### Alterado
+- **O dashboard passa a ocupar toda a largura disponível do browser** — antes
+  ficava limitado a 1440px e centrado, com espaço morto nos lados em monitores
+  largos.
+
 ## [1.9.15] - 2026-07-20
 
 ### Corrigido
@@ -183,7 +200,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.15...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.16...HEAD
+[1.9.16]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.15...v1.9.16
 [1.9.15]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.14...v1.9.15
 [1.9.14]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.13...v1.9.14
 [1.9.13]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.12...v1.9.13
