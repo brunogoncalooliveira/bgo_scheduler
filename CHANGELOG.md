@@ -7,6 +7,32 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.15] - 2026-07-20
+
+### Corrigido
+- **Seleção de texto voltava a perder-se.** Duas causas:
+  1. Um caractere de controlo (U+0001) tinha-se coado para dentro da chave dos
+     cards de apps (`.join("\x01")` em vez de `.join("")`) — não partia a
+     sintaxe, mas era um resíduo indevido de uma edição anterior.
+  2. **A causa de fundo:** os cards de apps, a tabela da visão geral (homepage)
+     e a tabela de histórico por app usavam cada um **uma única chave para a
+     lista inteira**. Qualquer app a mudar de estado — arrancar, terminar,
+     uma app encadeada a disparar outra — reconstruía **todos** os nós da
+     lista, mesmo os que não tinham mudado, desmarcando qualquer texto
+     selecionado neles. Isto agrava-se com apps encadeadas ("correr após"),
+     que provocam várias execuções em cascata em segundos.
+  Estas três listas passam a usar reconciliação **por item** (`reconcileList`):
+  cada card/linha só é reconstruído quando a sua própria chave muda; os
+  restantes nós nunca são tocados — é a identidade destes nós que o browser
+  usa para saber que uma seleção continua válida.
+
+### Testes
+- Scan direto ao `dashboard.html` contra caracteres de controlo perdidos
+  (teria apanhado a causa nº 1 de imediato).
+- Teste com um DOM mínimo que prova, por identidade de nós (`===`), que
+  itens inalterados nunca são reconstruídos quando outro item da mesma lista
+  muda — a propriedade exata que preserva a seleção de texto.
+
 ## [1.9.14] - 2026-07-14
 
 ### Corrigido
@@ -157,7 +183,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.14...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.15...HEAD
+[1.9.15]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.14...v1.9.15
 [1.9.14]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.13...v1.9.14
 [1.9.13]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.12...v1.9.13
 [1.9.12]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.11...v1.9.12

@@ -634,29 +634,73 @@ function orderAppsForChainView(apps) {
   return ordered;
 }
 
+/* Reconciliação "keyed" de uma lista de nós filhos de `container`: cada item
+   só é (re)construído quando a SUA PRÓPRIA chave muda — os restantes nunca
+   são tocados. É isto que preserva a seleção de texto: com uma única chave
+   para a lista inteira (o desenho anterior), qualquer item a mudar de estado
+   reconstruía TUDO — desmarcando texto selecionado num nó que nem tinha
+   mudado. `cache` é o Map (id -> {el, key}) persistente desta lista, mantido
+   pelo chamador entre chamadas. `items` é [{id, key}] pela ordem desejada;
+   `build(id)` constrói o nó de um id novo ou alterado. */
+function reconcileList(container, cache, items, build) {
+  const order = items.map(it => it.id);
+  for (const it of items) {
+    const prev = cache.get(it.id);
+    if (prev && prev.key === it.key) continue;
+    const node = build(it.id);
+    if (prev && prev.el.isConnected) prev.el.replaceWith(node);
+    cache.set(it.id, { el: node, key: it.key });
+  }
+  for (const id of Array.from(cache.keys()))
+    if (!order.includes(id)) cache.delete(id);
+  order.forEach((id, i) => {
+    const node = cache.get(id).el;
+    if (container.children[i] !== node) container.insertBefore(node, container.children[i] || null);
+  });
+  while (container.children.length > order.length) container.lastChild.remove();
+}
+
+function appCardKey(app, depth) {
+  const s = statusInfo(app);
+  return JSON.stringify([app.kind, app.enabled, (app.warnings || []).join(""),
+    s.cls, s.icon, s.label, app.last ? app.last.end : null,
+    app.sleeping, app.schedule_mode, app.next_run || "",
+    app.cron || "", app.interval_minutes, (app.run_after || []).join(","),
+    app.name === selected, depth]);
+}
+
+function buildAppCard(app, depth) {
+  return el("div", {
+    class: "card" + (app.name === selected ? " sel" : "") + (depth > 0 ? " chained" : ""),
+    style: depth > 0 ? `margin-left:${depth * 18}px` : null,
+    onclick: () => { selectApp(app.name); },
+  },
+    el("div", { class: "row1" },
+      depth > 0 ? el("span", { class: "chain-connector", title: "encadeada" }, "↳") : null,
+      el("span", { class: "name" }, app.name),
+      el("span", { class: "kind" }, app.kind === "py" ? "main.py" : "main.bat"),
+      (app.warnings && app.warnings.length)
+        ? el("span", { class: "warn-tag", title: app.warnings.join("\n") }, "⚠")
+        : null,
+      statusEl(app)),
+    el("div", { class: "meta" },
+      el("span", null, !app.enabled ? "agendamento desligado" : scheduleLabel(app)),
+      el("span", null, "última: " + (app.last ? fmtTime(app.last.end) : "—")),
+      app.sleeping
+        ? el("span", { class: "sleep-note" }, "😴 em pausa (sleep hours)")
+        : app.schedule_mode === "chain"
+        ? el("span", null, "encadeada")
+        : el("span", { "data-next": app.next_run || "" }, app.enabled ? "próxima: " + countdown(app.next_run) : "")));
+}
+
+let appCardCache = new Map();   // nome -> {el, key} — ver reconcileList
+
 function renderApps() {
   const list = $("#applist");
-  /* só reconstrói a lista quando muda algo estrutural (inclui a app
-     selecionada, para a classe .sel). A contagem decrescente dos cards é
-     atualizada ao vivo via [data-next], por isso o ISO cru de next_run entra
-     na chave, mas o texto que muda a cada segundo não — assim os cards não são
-     recriados a cada 2 s e a seleção de texto sobrevive. */
-  const key = JSON.stringify([
-    selected, STATE.apps_roots || [], STATE.config_path || "",
-    (STATE.apps || []).map(a => {
-      const s = statusInfo(a);
-      return [a.name, a.kind, a.enabled, (a.warnings || []).join(""),
-        s.cls, s.icon, s.label, a.last ? a.last.end : null,
-        a.sleeping, a.schedule_mode, a.next_run || "",
-        a.cron || "", a.interval_minutes, (a.run_after || []).join(",")];
-    }),
-  ]);
-  if (list.dataset.key === key) return;
-  list.dataset.key = key;
-  list.replaceChildren();
   if (!STATE.apps.length) {
+    appCardCache.clear();
     const roots = STATE.apps_roots || [];
-    list.append(el("div", { class: "panel" },
+    list.replaceChildren(el("div", { class: "panel" },
       el("div", { class: "empty" },
         roots.length
           ? ["Nenhuma app encontrada em:", el("br"),
@@ -668,31 +712,10 @@ function renderApps() {
              " e reinicia o scheduler."])));
     return;
   }
-  for (const { app, depth } of orderAppsForChainView(STATE.apps)) {
-    const card = el("div", {
-      class: "card" + (app.name === selected ? " sel" : "") + (depth > 0 ? " chained" : ""),
-      style: depth > 0 ? `margin-left:${depth * 18}px` : null,
-      onclick: () => { selectApp(app.name); },
-    },
-      el("div", { class: "row1" },
-        depth > 0 ? el("span", { class: "chain-connector", title: "encadeada" }, "↳") : null,
-        el("span", { class: "name" }, app.name),
-        el("span", { class: "kind" }, app.kind === "py" ? "main.py" : "main.bat"),
-        (app.warnings && app.warnings.length)
-          ? el("span", { class: "warn-tag", title: app.warnings.join("\n") }, "⚠")
-          : null,
-        statusEl(app)),
-      el("div", { class: "meta" },
-        el("span", null, !app.enabled ? "agendamento desligado" : scheduleLabel(app)),
-        el("span", null, "última: " + (app.last ? fmtTime(app.last.end) : "—")),
-        app.sleeping
-          ? el("span", { class: "sleep-note" }, "😴 em pausa (sleep hours)")
-          : app.schedule_mode === "chain"
-          ? el("span", null, "encadeada")
-          : el("span", { "data-next": app.next_run || "" }, app.enabled ? "próxima: " + countdown(app.next_run) : "")),
-    );
-    list.append(card);
-  }
+  const items = orderAppsForChainView(STATE.apps)
+    .map(({ app, depth }) => ({ id: app.name, key: appCardKey(app, depth), app, depth }));
+  reconcileList(list, appCardCache, items,
+    id => { const it = items.find(i => i.id === id); return buildAppCard(it.app, it.depth); });
 }
 
 /* ---------------- painel direito ---------------- */
@@ -714,43 +737,75 @@ function allRuns() {
   return rows.slice(0, 50);
 }
 
-function runsKey(rows) {
-  return JSON.stringify(rows.map(h => [h.app, h.start, h.end, h.status, h.returncode,
-    (h.notified || []).length, (h.messages || []).length]));
+function buildOverviewRow(h) {
+  return el("tr", { class: "ov", onclick: () => selectApp(h.app) },
+    el("td", null, h.app),
+    el("td", null, fmtTime(h.start)),
+    el("td", null, fmtHour(h.end)),
+    el("td", null, h.returncode === null || h.returncode === undefined ? "—" : String(h.returncode)),
+    el("td", null, runStatusEl(h)),
+    el("td", null, notifCell(h)));
 }
+
+let overviewRowCache = new Map();   // "app|start" -> {el, key} — ver reconcileList
 
 function renderOverview() {
   const panel = $("#detail");
+  if (panel.dataset.view !== "overview") {
+    /* esqueleto construído UMA vez ao entrar na visão geral — os refreshes
+       seguintes (updateOverview) só tocam nas linhas que realmente mudaram,
+       em vez de reconstruir a tabela inteira sempre que QUALQUER app noutro
+       sítio termina uma execução (isso apagava a seleção de texto de linhas
+       que nem tinham mudado). */
+    delete panel.dataset.app;
+    panel.dataset.view = "overview";
+    overviewRowCache.clear();
+    panel.replaceChildren(
+      el("h2", null, "Visão geral das execuções"),
+      el("div", { class: "hint", style: "margin:6px 0 12px" },
+        "Clica numa linha para abrir a app. As «Mensagens de sucesso / warning» definidas em cada app aparecem aqui (ℹ), tal como as notificações de erro (✕)."),
+      el("div", { id: "ov-loading" }),
+      el("div", { id: "ov-body" }));
+  }
+  updateOverview();
+}
+
+function updateOverview() {
   const rows = allRuns();
   // lazy start: quantas apps ainda não trouxeram o histórico do disco
   const loading = (STATE.apps || []).filter(a => a.history_loaded === false).length;
-  const key = runsKey(rows) + "|" + loading;
-  if (panel.dataset.view === "overview" && panel.dataset.key === key) return;
-  delete panel.dataset.app;
-  panel.dataset.view = "overview";
-  panel.dataset.key = key;
+  const loadingEl = $("#ov-loading");
+  loadingEl.className = loading ? "hint sleep-note" : "";
+  loadingEl.style.margin = loading ? "0 0 12px" : "0";
+  setText(loadingEl, loading ? "a carregar histórico de " + loading + " app(s)…" : "");
 
-  const table = el("table", null,
-    el("thead", null, el("tr", null,
-      el("th", null, "App"), el("th", null, "Início"), el("th", null, "Fim"),
-      el("th", null, "RC"), el("th", null, "Estado"),
-      el("th", null, "Notificação / Mensagem"))),
-    el("tbody", null, rows.map(h =>
-      el("tr", { class: "ov", onclick: () => selectApp(h.app) },
-        el("td", null, h.app),
-        el("td", null, fmtTime(h.start)),
-        el("td", null, fmtHour(h.end)),
-        el("td", null, h.returncode === null || h.returncode === undefined ? "—" : String(h.returncode)),
-        el("td", null, runStatusEl(h)),
-        el("td", null, notifCell(h))))));
-
-  panel.replaceChildren(
-    el("h2", null, "Visão geral das execuções"),
-    el("div", { class: "hint", style: "margin:6px 0 12px" },
-      "Clica numa linha para abrir a app. As «Mensagens de sucesso / warning» definidas em cada app aparecem aqui (ℹ), tal como as notificações de erro (✕)."),
-    loading ? el("div", { class: "hint sleep-note", style: "margin:0 0 12px" },
-      "a carregar histórico de " + loading + " app(s)…") : null,
-    rows.length ? table : el("div", { class: "empty" }, "Ainda sem execuções."));
+  const body = $("#ov-body");
+  if (!rows.length) {
+    if (body.dataset.kind !== "empty") {
+      body.dataset.kind = "empty";
+      overviewRowCache.clear();
+      body.replaceChildren(el("div", { class: "empty" }, "Ainda sem execuções."));
+    }
+    return;
+  }
+  if (body.dataset.kind !== "table") {
+    body.dataset.kind = "table";
+    overviewRowCache.clear();
+    body.replaceChildren(el("table", null,
+      el("thead", null, el("tr", null,
+        el("th", null, "App"), el("th", null, "Início"), el("th", null, "Fim"),
+        el("th", null, "RC"), el("th", null, "Estado"),
+        el("th", null, "Notificação / Mensagem"))),
+      el("tbody", { id: "ov-tbody" })));
+  }
+  const items = rows.map(h => ({
+    id: h.app + "|" + h.start,
+    key: JSON.stringify([h.end, h.status, h.returncode,
+      (h.notified || []).length, (h.messages || []).length]),
+    h,
+  }));
+  reconcileList($("#ov-tbody"), overviewRowCache, items,
+    id => buildOverviewRow(items.find(i => i.id === id).h));
 }
 
 /* --- detalhe de uma app --- */
@@ -809,7 +864,11 @@ function renderDetail(app) {
       /* --- aba Monitorização (só consulta) --- */
       el("div", { id: "tab-monitor" },
         el("h3", null, "Histórico de execuções"),
-        el("div", { id: "histbox" }),
+        el("div", { id: "histbox" },
+          el("div", { id: "hist-body" }),
+          el("div", { id: "hist-out" }),
+          el("div", { class: "hint", id: "hist-tip", style: "margin-top:4px;display:none" },
+            "Clica numa linha para ver o output.")),
         el("h3", null, "Logs (logs/" + app.name + ".log)"),
         el("div", { id: "logwrap" },
           el("label", { class: "sw", style: "margin-bottom:6px" },
@@ -1021,45 +1080,71 @@ function updateDetail(app) {
       dw.replaceChildren();
     }
   }
-  const hb = $("#histbox");
-  const key = runsKey(app.history || []) + "|" + histOpen + "|" + app.history_loaded;
-  if (hb.dataset.key !== key) {
-    hb.dataset.key = key;
-    hb.replaceChildren(renderHistory(app));
-  }
+  updateHistory(app);
 }
 
-function renderHistory(app) {
+/* Reconciliação por linha do histórico (ver reconcileList): uma execução
+   nova desta app só acrescenta/atualiza a SUA linha — não reconstrói a
+   tabela inteira, o que apagaria a seleção de texto de linhas antigas
+   inalteradas (ex.: texto copiado do stdout de uma execução mais antiga). */
+let historyRowCache = new Map();   // start-iso -> {el, key}
+
+function buildHistoryRow(app, h) {
+  return el("tr", { class: "hist", onclick: () => {
+      histOpen = histOpen === h.start ? null : h.start;
+      updateHistory(app);
+    } },
+    el("td", null, fmtTime(h.start)),
+    el("td", null, fmtDur(h.duration_s)),
+    el("td", null, h.origem || ""),
+    el("td", null, h.returncode === null || h.returncode === undefined ? "—" : String(h.returncode)),
+    el("td", null, runStatusEl(h)),
+    el("td", null, notifCell(h)));
+}
+
+function updateHistory(app) {
   const hist = (app.history || []).slice().reverse();
+  const body = $("#hist-body");
+  const out = $("#hist-out");
+  const tip = $("#hist-tip");
   if (!hist.length) {
-    return el("div", { class: "hint" },
-      app.history_loaded === false ? "a carregar histórico…" : "Ainda sem execuções.");
+    historyRowCache.clear();
+    tip.style.display = "none";
+    out.replaceChildren();
+    const msg = app.history_loaded === false ? "a carregar histórico…" : "Ainda sem execuções.";
+    if (body.dataset.kind !== "empty" || body.dataset.msg !== msg) {
+      body.dataset.kind = "empty"; body.dataset.msg = msg;
+      body.replaceChildren(el("div", { class: "hint" }, msg));
+    }
+    return;
   }
-  const rows = hist.map(h =>
-    el("tr", { class: "hist", onclick: () => {
-        histOpen = histOpen === h.start ? null : h.start;
-        updateDetail(app);
-      } },
-      el("td", null, fmtTime(h.start)),
-      el("td", null, fmtDur(h.duration_s)),
-      el("td", null, h.origem || ""),
-      el("td", null, h.returncode === null || h.returncode === undefined ? "—" : String(h.returncode)),
-      el("td", null, runStatusEl(h)),
-      el("td", null, notifCell(h))));
-  const table = el("table", null,
-    el("thead", null, el("tr", null,
-      el("th", null, "Início"), el("th", null, "Duração"), el("th", null, "Origem"),
-      el("th", null, "RC"), el("th", null, "Estado"), el("th", null, "Notificação / Mensagem"))),
-    el("tbody", null, rows));
-  const parts = [table];
+  tip.style.display = "";
+  if (body.dataset.kind !== "table") {
+    body.dataset.kind = "table";
+    historyRowCache.clear();
+    body.replaceChildren(el("table", null,
+      el("thead", null, el("tr", null,
+        el("th", null, "Início"), el("th", null, "Duração"), el("th", null, "Origem"),
+        el("th", null, "RC"), el("th", null, "Estado"), el("th", null, "Notificação / Mensagem"))),
+      el("tbody", { id: "hist-tbody" })));
+  }
+  const items = hist.map(h => ({
+    id: h.start,
+    key: JSON.stringify([h.duration_s, h.origem, h.returncode, h.status,
+      (h.notified || []).length, (h.messages || []).length]),
+    h,
+  }));
+  reconcileList($("#hist-tbody"), historyRowCache, items,
+    id => buildHistoryRow(app, items.find(i => i.id === id).h));
+
   const open = hist.find(h => h.start === histOpen);
-  if (open) {
-    parts.push(el("div", { class: "out" },
+  const outKey = open ? open.start + "|" + (open.stdout_tail || "") + "|" + (open.stderr_tail || "") : "";
+  if (out.dataset.key !== outKey) {
+    out.dataset.key = outKey;
+    out.replaceChildren(open ? el("div", { class: "out" },
       open.stdout_tail ? open.stdout_tail : "(sem stdout)",
-      open.stderr_tail ? el("div", { class: "err" }, "\n--- stderr ---\n" + open.stderr_tail) : null));
+      open.stderr_tail ? el("div", { class: "err" }, "\n--- stderr ---\n" + open.stderr_tail) : null) : null);
   }
-  parts.push(el("div", { class: "hint", style: "margin-top:4px" }, "Clica numa linha para ver o output."));
-  return el("div", null, parts);
 }
 
 /* ------------- editor de regras (notificações + mensagens) ------------- */
