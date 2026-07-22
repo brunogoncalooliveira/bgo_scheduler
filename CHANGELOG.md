@@ -7,6 +7,17 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [1.9.18] - 2026-07-22
+
+### Corrigido
+- **Rajada de 10-15 notificações ao desbloquear a sessão.** Com o Windows
+  bloqueado (ecrã de password), o tray continuava a aceitar chamadas de
+  notificação normalmente — o Windows só as mostra depois do desbloqueio,
+  todas de uma vez. O tray passa a subscrever a mudança de estado da sessão
+  (`WTSRegisterSessionNotification`/`WM_WTSSESSION_CHANGE`): enquanto
+  bloqueada, as notificações ficam só a contar em vez de gerar um toast cada;
+  ao desbloquear, sai um único toast resumo ("N notificações em espera").
+
 ## [1.9.17] - 2026-07-20
 
 ### Adicionado
@@ -210,7 +221,8 @@ e o projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   interpretador Python por app, histórico persistente, e edição da
   configuração no dashboard.
 
-[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.17...HEAD
+[Não publicado]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.18...HEAD
+[1.9.18]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.17...v1.9.18
 [1.9.17]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.16...v1.9.17
 [1.9.16]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.15...v1.9.16
 [1.9.15]: https://github.com/brunogoncalooliveira/bgo_scheduler/compare/v1.9.14...v1.9.15

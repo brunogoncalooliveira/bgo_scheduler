@@ -7,6 +7,7 @@ runtime). Só funciona no Windows — o único ambiente suportado.
 
 import ctypes
 import sys
+import threading
 import webbrowser
 from collections import deque
 from contextlib import ExitStack
@@ -21,6 +22,7 @@ from .web_dashboard import start_dashboard
 user32 = ctypes.windll.user32
 shell32 = ctypes.windll.shell32
 kernel32 = ctypes.windll.kernel32
+wtsapi32 = ctypes.windll.wtsapi32
 
 LRESULT = ctypes.c_ssize_t
 LPARAM = ctypes.c_ssize_t
@@ -38,6 +40,12 @@ WM_TRAY_NOTIFY = WM_APP + 3
 WM_TRAY_QUIT = WM_APP + 4
 WM_LBUTTONDBLCLK = 0x0203
 WM_RBUTTONUP = 0x0205
+
+# sessão Windows (lock/unlock) — WTSRegisterSessionNotification
+WM_WTSSESSION_CHANGE = 0x02B1
+WTS_SESSION_LOCK = 0x7
+WTS_SESSION_UNLOCK = 0x8
+NOTIFY_FOR_THIS_SESSION = 0
 
 # Shell_NotifyIcon
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
@@ -113,6 +121,10 @@ def _setup_prototypes():
     shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.POINTER(NOTIFYICONDATA)]
     kernel32.GetModuleHandleW.restype = wintypes.HMODULE
     kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+    wtsapi32.WTSRegisterSessionNotification.restype = wintypes.BOOL
+    wtsapi32.WTSRegisterSessionNotification.argtypes = [wintypes.HWND, wintypes.DWORD]
+    wtsapi32.WTSUnRegisterSessionNotification.restype = wintypes.BOOL
+    wtsapi32.WTSUnRegisterSessionNotification.argtypes = [wintypes.HWND]
 
 
 class TrayApp:
@@ -126,6 +138,10 @@ class TrayApp:
         self.hwnd = None
         self._menu_actions = {}          # id -> callable
         self._notify_queue = deque()
+        # protege os campos abaixo — notify() é chamado de threads de fundo, não da UI
+        self._session_lock = threading.Lock()
+        self._session_locked = False
+        self._locked_notify_count = 0
         self._res_stack = ExitStack()
         self.hicons = {}
         _setup_prototypes()
@@ -168,8 +184,30 @@ class TrayApp:
     # -- notificações e ícone (marshalling para a thread da UI) -----------
 
     def notify(self, title, message):
+        with self._session_lock:
+            if self._session_locked:
+                self._locked_notify_count += 1
+                return
         self._notify_queue.append((str(title)[:60], str(message)[:250]))
         if self.hwnd:
+            user32.PostMessageW(self.hwnd, WM_TRAY_NOTIFY, 0, 0)
+
+    def _on_session_lock(self):
+        with self._session_lock:
+            self._session_locked = True
+            self._locked_notify_count = 0
+
+    def _on_session_unlock(self):
+        with self._session_lock:
+            self._session_locked = False
+            n = self._locked_notify_count
+            self._locked_notify_count = 0
+        if n == 1:
+            self._notify_queue.append(("bgo scheduler", "1 notificação em espera (sessão bloqueada)."))
+            user32.PostMessageW(self.hwnd, WM_TRAY_NOTIFY, 0, 0)
+        elif n > 1:
+            self._notify_queue.append(
+                ("bgo scheduler", f"{n} notificações em espera (sessão bloqueada)."))
             user32.PostMessageW(self.hwnd, WM_TRAY_NOTIFY, 0, 0)
 
     def request_icon_update(self):
@@ -251,10 +289,17 @@ class TrayApp:
         if msg == WM_TRAY_NOTIFY:
             self._drain_notifications()
             return 0
+        if msg == WM_WTSSESSION_CHANGE:
+            if wparam == WTS_SESSION_LOCK:
+                self._on_session_lock()
+            elif wparam == WTS_SESSION_UNLOCK:
+                self._on_session_unlock()
+            return 0
         if msg == WM_TRAY_QUIT:
             user32.DestroyWindow(hwnd)
             return 0
         if msg == WM_DESTROY:
+            wtsapi32.WTSUnRegisterSessionNotification(hwnd)
             self._remove_icon()
             user32.PostQuitMessage(0)
             return 0
@@ -304,6 +349,7 @@ class TrayApp:
             0, wc.lpszClassName, "bgo scheduler", 0,
             CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
             None, None, hinst, None)
+        wtsapi32.WTSRegisterSessionNotification(self.hwnd, NOTIFY_FOR_THIS_SESSION)
 
     # -- arranque ---------------------------------------------------------
 
